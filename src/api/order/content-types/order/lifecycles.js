@@ -64,31 +64,19 @@ function confirmationEmail(order) {
 }
 
 module.exports = {
-  async beforeUpdate(event) {
-    const { data, where } = event.params
-    if (!where.documentId || (!Object.prototype.hasOwnProperty.call(data, 'paymentStatus') && !Object.prototype.hasOwnProperty.call(data, 'trackingNumber'))) return
-
-    const currentOrder = await strapi.documents('api::order.order').findOne({
-      documentId: where.documentId,
-      fields: ['paymentStatus', 'trackingNumber', 'confirmationEmailSentAt', 'trackingEmailSentAt', 'stockDecrementedAt']
-    })
-    if (!currentOrder) return
-
-    event.state.sendConfirmation = data.paymentStatus === 'paid' && !currentOrder.confirmationEmailSentAt
-    event.state.decrementStock = data.paymentStatus === 'paid' && !currentOrder.stockDecrementedAt
-    event.state.sendTracking = Boolean(data.trackingNumber) && !currentOrder.trackingEmailSentAt
-  },
-
   async afterUpdate(event) {
-    const documentId = event.result.documentId
-    if (!documentId || (!event.state.sendConfirmation && !event.state.sendTracking && !event.state.decrementStock)) return
+    const { data, where } = event.params
+    const documentId = where?.documentId || event.result?.documentId
+    const paymentConfirmed = data.paymentStatus === 'paid'
+    const trackingAdded = Boolean(data.trackingNumber)
+    if (!documentId || (!paymentConfirmed && !trackingAdded)) return
 
     const order = await getOrder(strapi, documentId)
     if (!order) return
 
-    if (event.state.decrementStock) await decrementStock(strapi, order)
+    if (paymentConfirmed && !order.stockDecrementedAt) await decrementStock(strapi, order)
 
-    if (event.state.sendConfirmation) {
+    if (paymentConfirmed && !order.confirmationEmailSentAt) {
       const email = confirmationEmail(order)
       await strapi.plugin('email').service('email').send({
         ...emailSender(),
@@ -99,7 +87,7 @@ module.exports = {
       strapi.log.info(`E-mail de confirmation envoyé pour la commande ${order.reference}`)
     }
 
-    if (event.state.sendTracking) {
+    if (trackingAdded && !order.trackingEmailSentAt) {
       const trackingUrl = safeUrl(order.trackingUrl)
       const trackingLink = trackingUrl ? `<p><a href="${escapeHtml(trackingUrl)}">Suivre mon colis</a></p>` : ''
       await strapi.plugin('email').service('email').send({

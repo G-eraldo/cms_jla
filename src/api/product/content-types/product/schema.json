@@ -24,6 +24,12 @@
       "type": "decimal",
       "required": true
     },
+    "stock": {
+      "type": "integer",
+      "required": true,
+      "min": 0,
+      "default": 0
+    },
     "description": {
       "type": "blocks",
       "required": true

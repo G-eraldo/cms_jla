@@ -35,6 +35,7 @@
     "carrier": { "type": "string" },
     "trackingUrl": { "type": "string" },
     "paidAt": { "type": "datetime" },
+    "stockDecrementedAt": { "type": "datetime" },
     "shippedAt": { "type": "datetime" },
     "confirmationEmailSentAt": { "type": "datetime" },
     "trackingEmailSentAt": { "type": "datetime" }

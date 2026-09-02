@@ -515,6 +515,7 @@ export interface ApiOrderOrder extends Struct.CollectionTypeSchema {
         number
       > &
       Schema.Attribute.DefaultTo<0>;
+    stockDecrementedAt: Schema.Attribute.DateTime;
     subtotalAmount: Schema.Attribute.Decimal &
       Schema.Attribute.Required &
       Schema.Attribute.SetMinMax<

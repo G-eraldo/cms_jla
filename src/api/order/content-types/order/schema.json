@@ -1,0 +1,42 @@
+{
+  "kind": "collectionType",
+  "collectionName": "orders",
+  "info": {
+    "singularName": "order",
+    "pluralName": "orders",
+    "displayName": "Commande",
+    "description": "Commandes payées et en cours de traitement"
+  },
+  "options": { "draftAndPublish": false },
+  "pluginOptions": {},
+  "attributes": {
+    "reference": { "type": "string", "required": true, "unique": true },
+    "firstName": { "type": "string", "required": true },
+    "lastName": { "type": "string", "required": true },
+    "email": { "type": "email", "required": true },
+    "phone": { "type": "string", "required": true },
+    "addressLine1": { "type": "string", "required": true },
+    "addressLine2": { "type": "string" },
+    "postalCode": { "type": "string", "required": true },
+    "city": { "type": "string", "required": true },
+    "country": { "type": "string", "required": true, "default": "France" },
+    "deliveryMethod": { "type": "enumeration", "enum": ["home", "pickup"], "required": true },
+    "pickupPoint": { "type": "string" },
+    "pickupPointId": { "type": "string" },
+    "items": { "type": "component", "component": "commerce.order-line", "repeatable": true, "required": true, "min": 1 },
+    "subtotalAmount": { "type": "decimal", "required": true, "min": 0 },
+    "shippingAmount": { "type": "decimal", "required": true, "min": 0, "default": 0 },
+    "totalAmount": { "type": "decimal", "required": true, "min": 0 },
+    "currency": { "type": "string", "required": true, "default": "EUR" },
+    "molliePaymentId": { "type": "string", "unique": true },
+    "paymentStatus": { "type": "enumeration", "enum": ["pending", "paid", "failed", "canceled", "expired", "refunded"], "required": true, "default": "pending" },
+    "fulfillmentStatus": { "type": "enumeration", "enum": ["pending", "processing", "shipped", "delivered", "canceled"], "required": true, "default": "pending" },
+    "trackingNumber": { "type": "string" },
+    "carrier": { "type": "string" },
+    "trackingUrl": { "type": "string" },
+    "paidAt": { "type": "datetime" },
+    "shippedAt": { "type": "datetime" },
+    "confirmationEmailSentAt": { "type": "datetime" },
+    "trackingEmailSentAt": { "type": "datetime" }
+  }
+}

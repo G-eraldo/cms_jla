@@ -1,0 +1,14 @@
+{
+  "collectionName": "components_commerce_order_lines",
+  "info": {
+    "displayName": "Ligne de commande",
+    "description": "Copie figée d'un article acheté"
+  },
+  "options": {},
+  "attributes": {
+    "productDocumentId": { "type": "string", "required": true },
+    "productName": { "type": "string", "required": true },
+    "unitPrice": { "type": "decimal", "required": true, "min": 0 },
+    "quantity": { "type": "integer", "required": true, "min": 1, "max": 10 }
+  }
+}

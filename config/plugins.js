@@ -42,8 +42,8 @@ module.exports = ({ env }) => ({
         apiKey: env("RESEND_API_KEY"), // Required
       },
       settings: {
-        defaultFrom: "contact@lafabriqueducode.fr",
-        defaultReplyTo: "contact@lafabriqueducode.fr",
+        defaultFrom: env("RESEND_FROM"),
+        defaultReplyTo: env("RESEND_REPLY_TO", env("RESEND_FROM")),
       },
     },
   },

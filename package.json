@@ -21,6 +21,7 @@
     "@strapi/provider-upload-cloudinary": "^5.52.2",
     "@strapi/strapi": "5.52.2",
     "better-sqlite3": "12.8.0",
+    "pdfkit": "^0.17.2",
     "pg": "^8.23.0",
     "react": "^18.0.0",
     "react-dom": "^18.0.0",

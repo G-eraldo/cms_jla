@@ -1,6 +1,6 @@
 "use strict";
 
-const { createInvoicePdf, invoiceNumber } = require("../services/invoice");
+const { createInvoicePdf, invoiceNumber } = require("../../services/invoice");
 
 const escapeHtml = (value) =>
   String(value || "").replace(

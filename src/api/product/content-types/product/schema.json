@@ -38,17 +38,11 @@
       "type": "media",
       "multiple": true,
       "required": true,
-      "allowedTypes": [
-        "images"
-      ]
+      "allowedTypes": ["images"]
     },
     "category": {
       "type": "enumeration",
-      "enum": [
-        "Colliers",
-        "Boucles",
-        "Bracelets"
-      ]
+      "enum": ["Colliers", "Boucles", "Bracelets", "Bagues"]
     },
     "featured": {
       "type": "boolean",

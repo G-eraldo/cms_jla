@@ -1,6 +1,7 @@
 "use strict";
 
 const { createInvoicePdf, invoiceNumber } = require("../../services/invoice");
+const { syncOrderToSendcloud } = require("../../services/sendcloud");
 
 const escapeHtml = (value) =>
   String(value || "").replace(
@@ -35,13 +36,19 @@ async function getOrder(strapi, documentId) {
       "firstName",
       "lastName",
       "email",
+      "phone",
       "addressLine1",
       "addressLine2",
       "postalCode",
       "city",
       "country",
+      "deliveryMethod",
+      "pickupPoint",
+      "pickupPointId",
       "shippingAmount",
       "totalAmount",
+      "currency",
+      "createdAt",
       "paidAt",
       "trackingNumber",
       "trackingUrl",
@@ -138,6 +145,19 @@ module.exports = {
 
     const order = await getOrder(strapi, documentId);
     if (!order) return;
+
+    if (paymentConfirmed) {
+      try {
+        const importedOrder = await syncOrderToSendcloud(order);
+        strapi.log.info(
+          `Commande ${order.reference} importée dans Sendcloud (${importedOrder.id})`,
+        );
+      } catch (error) {
+        strapi.log.error(
+          `Échec de l'import Sendcloud pour la commande ${order.reference} : ${error.message}`,
+        );
+      }
+    }
 
     if (paymentConfirmed && !order.stockDecrementedAt) {
       try {

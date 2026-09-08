@@ -139,33 +139,46 @@ module.exports = {
     const order = await getOrder(strapi, documentId);
     if (!order) return;
 
-    if (paymentConfirmed && !order.stockDecrementedAt)
-      await decrementStock(strapi, order);
+    if (paymentConfirmed && !order.stockDecrementedAt) {
+      try {
+        await decrementStock(strapi, order);
+      } catch (error) {
+        strapi.log.error(
+          `Échec du décrément de stock pour la commande ${order.reference} : ${error.message}`,
+        );
+      }
+    }
 
     if (paymentConfirmed && !trackingAdded && !order.confirmationEmailSentAt) {
-      const email = confirmationEmail(order);
-      const invoice = await createInvoicePdf(order);
-      await strapi
-        .plugin("email")
-        .service("email")
-        .send({
-          ...emailSender(),
-          to: order.email,
-          ...email,
-          attachments: [
-            {
-              filename: `facture-${invoiceNumber(order)}.pdf`,
-              content: invoice,
-            },
-          ],
+      try {
+        const email = confirmationEmail(order);
+        const invoice = await createInvoicePdf(order);
+        await strapi
+          .plugin("email")
+          .service("email")
+          .send({
+            ...emailSender(),
+            to: order.email,
+            ...email,
+            attachments: [
+              {
+                filename: `facture-${invoiceNumber(order)}.pdf`,
+                content: invoice,
+              },
+            ],
+          });
+        await strapi.documents("api::order.order").update({
+          documentId,
+          data: { confirmationEmailSentAt: new Date().toISOString() },
         });
-      await strapi.documents("api::order.order").update({
-        documentId,
-        data: { confirmationEmailSentAt: new Date().toISOString() },
-      });
-      strapi.log.info(
-        `E-mail de confirmation envoyé pour la commande ${order.reference}`,
-      );
+        strapi.log.info(
+          `E-mail de confirmation envoyé pour la commande ${order.reference}`,
+        );
+      } catch (error) {
+        strapi.log.error(
+          `Échec de l'e-mail de confirmation pour la commande ${order.reference} : ${error.message}`,
+        );
+      }
     }
 
     if (trackingAdded && !order.trackingEmailSentAt) {

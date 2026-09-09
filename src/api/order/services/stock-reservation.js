@@ -242,16 +242,48 @@ async function reserveOrder(strapi, payload) {
   try {
     return await strapi.db.transaction(async ({ trx }) => {
       for (const item of items) {
-        const decremented = await strapi.db
+        // Verrouille toutes les lignes Strapi correspondant au produit.
+        // Avec Draft & Publish, un même documentId peut correspondre
+        // à plusieurs lignes (draft + published).
+        const productRows = await strapi.db
           .getConnection("products")
           .transacting(trx)
           .where({ document_id: item.productDocumentId })
-          .where("stock", ">=", item.quantity)
-          .decrement("stock", item.quantity);
-        strapi.log.info(
-          `[STOCK] ${item.productName} documentId=${item.productDocumentId} quantity=${item.quantity} rows=${decremented}`,
+          .forUpdate()
+          .select("id", "stock");
+
+        // Le produit doit toujours exister.
+        if (!productRows.length) {
+          throw new ReservationError(
+            `Le stock de « ${item.productName} » vient d’être mis à jour. Veuillez actualiser votre panier.`,
+            409,
+          );
+        }
+
+        // Toutes les versions du produit doivent avoir suffisamment de stock.
+        const insufficientStock = productRows.some(
+          (row) => Number(row.stock) < item.quantity,
         );
-        if (decremented !== 1) {
+
+        if (insufficientStock) {
+          throw new ReservationError(
+            `Le stock de « ${item.productName} » vient d’être mis à jour. Veuillez actualiser votre panier.`,
+            409,
+          );
+        }
+
+        // Les lignes sont verrouillées : personne d'autre ne peut modifier
+        // leur stock avant la fin de cette transaction.
+        const productRowIds = productRows.map((row) => row.id);
+
+        const decremented = await strapi.db
+          .getConnection("products")
+          .transacting(trx)
+          .whereIn("id", productRowIds)
+          .decrement("stock", item.quantity);
+
+        // On vérifie que toutes les lignes verrouillées ont bien été mises à jour.
+        if (decremented !== productRows.length) {
           throw new ReservationError(
             `Le stock de « ${item.productName} » vient d’être mis à jour. Veuillez actualiser votre panier.`,
             409,

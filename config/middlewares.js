@@ -30,7 +30,13 @@ module.exports = [
   "strapi::cors",
   "strapi::poweredBy",
   "strapi::query",
-  "strapi::body",
+  {
+    name: "strapi::body",
+    config: {
+      // Sendcloud signe les octets exacts du corps HTTP. Koa doit donc les conserver.
+      includeUnparsed: true,
+    },
+  },
   "strapi::session",
   "strapi::favicon",
   "strapi::public",

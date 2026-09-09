@@ -68,7 +68,7 @@ function buildSendcloudOrder(order, integrationId) {
       is_local_pickup: false,
       delivery_indicator:
         order.deliveryMethod === "pickup"
-          ? "Mondial Relay - point relais"
+          ? `Mondial Relay - ${order.pickupPoint || "point relais"}`.slice(0, 250)
           : "Livraison à domicile",
     },
   };
@@ -94,28 +94,53 @@ async function syncOrderToSendcloud(order, options = {}) {
     throw new Error("Les clés API Sendcloud ne sont pas configurées dans Strapi.");
   }
 
-  const response = await fetchImpl(SENDCLOUD_ORDERS_URL, {
+  const request = {
     method: "POST",
     headers: {
       Authorization: `Basic ${Buffer.from(`${publicKey}:${secretKey}`).toString("base64")}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify([buildSendcloudOrder(order, integrationId)]),
-    signal: options.signal || AbortSignal.timeout(10000),
-  });
+  };
+  const maxAttempts = options.maxAttempts || 2;
+  const retryDelay = options.retryDelay ?? 250;
+  let lastError;
 
-  const body = await response.json().catch(() => null);
-  if (!response.ok) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    let response;
+    try {
+      response = await fetchImpl(SENDCLOUD_ORDERS_URL, {
+        ...request,
+        signal: options.signal || AbortSignal.timeout(5000),
+      });
+    } catch (error) {
+      lastError = new Error(`Sendcloud est injoignable : ${error.message}`);
+      if (attempt < maxAttempts) {
+        await new Promise((resolve) => setTimeout(resolve, retryDelay * attempt));
+        continue;
+      }
+      throw lastError;
+    }
+
+    const body = await response.json().catch(() => null);
+    if (response.ok) {
+      const importedOrder = body?.data?.[0];
+      if (!importedOrder?.id) {
+        throw new Error("Sendcloud n'a pas confirmé l'import de la commande.");
+      }
+      return importedOrder;
+    }
+
     const details = JSON.stringify(body || {}).slice(0, 500);
-    throw new Error(`Sendcloud a refusé la commande (${response.status}) : ${details}`);
+    lastError = new Error(
+      `Sendcloud a refusé la commande (${response.status}) : ${details}`,
+    );
+    const transientFailure = response.status === 429 || response.status >= 500;
+    if (!transientFailure || attempt === maxAttempts) throw lastError;
+    await new Promise((resolve) => setTimeout(resolve, retryDelay * attempt));
   }
 
-  const importedOrder = body?.data?.[0];
-  if (!importedOrder?.id) {
-    throw new Error("Sendcloud n'a pas confirmé l'import de la commande.");
-  }
-
-  return importedOrder;
+  throw lastError;
 }
 
 module.exports = {

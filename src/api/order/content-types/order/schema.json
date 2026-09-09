@@ -38,6 +38,7 @@
     "stockDecrementedAt": { "type": "datetime" },
     "shippedAt": { "type": "datetime" },
     "confirmationEmailSentAt": { "type": "datetime" },
+    "ntfyNotificationSentAt": { "type": "datetime" },
     "trackingEmailSentAt": { "type": "datetime" }
   }
 }

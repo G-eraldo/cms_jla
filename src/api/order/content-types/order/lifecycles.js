@@ -2,6 +2,8 @@
 
 const { createInvoicePdf, invoiceNumber } = require("../../services/invoice");
 const { syncOrderToSendcloud } = require("../../services/sendcloud");
+const { createTermsPdf, TERMS_VERSION } = require("../../services/terms");
+const { notifyOrderPaid } = require("../../services/ntfy");
 
 const escapeHtml = (value) =>
   String(value || "").replace(
@@ -16,18 +18,9 @@ const formatAmount = (value) =>
     Number(value || 0),
   );
 const emailSender = () => ({
-  from: process.env.RESEND_FROM,
+  from: process.env.RESEND_FROM || process.env.RESEND_REPLY_TO,
   replyTo: process.env.RESEND_REPLY_TO || process.env.RESEND_FROM,
 });
-const safeUrl = (value) => {
-  try {
-    const url = new URL(value);
-    return ["https:", "http:"].includes(url.protocol) ? url.href : null;
-  } catch {
-    return null;
-  }
-};
-
 async function getOrder(strapi, documentId) {
   return strapi.documents("api::order.order").findOne({
     documentId,
@@ -50,11 +43,9 @@ async function getOrder(strapi, documentId) {
       "currency",
       "createdAt",
       "paidAt",
-      "trackingNumber",
-      "trackingUrl",
-      "carrier",
       "stockDecrementedAt",
       "confirmationEmailSentAt",
+      "ntfyNotificationSentAt",
     ],
     populate: {
       items: {
@@ -116,22 +107,8 @@ function confirmationEmail(order) {
 
   return {
     subject: `Commande ${order.reference} confirmée — Maison JLA`,
-    text: `Bonjour ${order.lastName}, votre commande ${order.reference} est confirmée. Montant total : ${formatAmount(order.totalAmount)}. Votre facture ${invoiceNumber(order)} est jointe à cet e-mail. Nous vous écrirons dès son expédition.`,
-    html: `<div style="margin:0;padding:40px 20px;background:#f5eee6;font-family:Arial,sans-serif;color:#302722"><div style="max-width:600px;margin:0 auto;background:#ffffff"><div style="padding:32px;text-align:center;border-bottom:1px solid #e9ddd3"><div style="font-family:Georgia,serif;font-size:30px;color:#302722">Maison JLA</div></div><div style="padding:32px"><h1 style="margin:0 0 24px;font-family:Georgia,serif;font-size:26px;font-weight:normal">Votre commande est confirmée</h1><p>Bonjour ${escapeHtml(order.lastName)},</p><p>Merci infiniment pour votre confiance. Votre commande <strong>${escapeHtml(order.reference)}</strong> a bien été confirmée.</p><div style="margin:26px 0;padding:20px;background:#fdf7f2"><p style="margin:0 0 12px;font-weight:bold">Votre sélection</p><ul style="margin:0;padding-left:18px">${items}</ul><p style="margin:18px 0 0;font-weight:bold">Total réglé : ${formatAmount(order.totalAmount)}</p></div><p>Votre facture <strong>${escapeHtml(invoiceNumber(order))}</strong> est jointe à cet e-mail.</p><p>Nous vous écrirons dès que votre commande sera expédiée.</p><p>À très vite,<br>Maison JLA</p></div><div style="padding:18px 32px;border-top:1px solid #e9ddd3;text-align:center;font-size:12px;color:#776b64">Maison JLA<br>5 Rue Joliot Curie - 80200 FLAMICOURT</div></div></div>`,
-  };
-}
-
-function trackingEmail(order) {
-  const trackingUrl = safeUrl(order.trackingUrl);
-  const trackingAction = trackingUrl
-    ? `<p style="margin:26px 0 0"><a href="${escapeHtml(trackingUrl)}" style="display:inline-block;padding:14px 22px;background:#302722;color:#ffffff;text-decoration:none">Suivre mon colis</a></p>`
-    : "";
-  const carrier = order.carrier ? ` avec ${escapeHtml(order.carrier)}` : "";
-
-  return {
-    subject: `Votre commande ${order.reference} est expédiée — Maison JLA`,
-    text: `Bonjour ${order.firstName}, votre commande ${order.reference} est expédiée${order.carrier ? ` avec ${order.carrier}` : ""}. Numéro de suivi : ${order.trackingNumber}.${trackingUrl ? ` Suivre le colis : ${trackingUrl}` : ""}`,
-    html: `<div style="margin:0;padding:40px 20px;background:#f5eee6;font-family:Arial,sans-serif;color:#302722"><div style="max-width:600px;margin:0 auto;background:#ffffff"><div style="padding:32px;text-align:center;border-bottom:1px solid #e9ddd3"><div style="font-family:Georgia,serif;font-size:30px;color:#302722">Maison JLA</div></div><div style="padding:32px"><h1 style="margin:0 0 24px;font-family:Georgia,serif;font-size:26px;font-weight:normal">Votre commande est expédiée</h1><p>Bonjour ${escapeHtml(order.firstName)},</p><p>Votre commande <strong>${escapeHtml(order.reference)}</strong> a été confiée au transporteur${carrier}.</p><div style="margin:26px 0;padding:20px;background:#fdf7f2"><p style="margin:0 0 12px;font-weight:bold">Votre numéro de suivi</p><p style="margin:0;font-size:20px;font-weight:bold;letter-spacing:1px">${escapeHtml(order.trackingNumber)}</p>${order.carrier ? `<p style="margin:12px 0 0;color:#776b64">Transporteur : ${escapeHtml(order.carrier)}</p>` : ""}${trackingAction}</div><p>À très vite,<br>Maison JLA</p></div><div style="padding:18px 32px;border-top:1px solid #e9ddd3;text-align:center;font-size:12px;color:#776b64">Maison JLA<br>5 rue Joliot Curie — 80200 Flamicourt</div></div></div>`,
+    text: `Bonjour ${order.lastName}, votre commande ${order.reference} est confirmée. Montant total : ${formatAmount(order.totalAmount)}. Livraison : ${order.deliveryMethod === "pickup" ? `point relais ${order.pickupPoint || "sélectionné"}` : `${order.addressLine1}, ${order.postalCode} ${order.city}`}. Votre facture ${invoiceNumber(order)} et les CGV du ${TERMS_VERSION} sont jointes à cet e-mail. Nous vous écrirons dès son expédition.`,
+    html: `<div style="margin:0;padding:40px 20px;background:#f5eee6;font-family:Arial,sans-serif;color:#302722"><div style="max-width:600px;margin:0 auto;background:#ffffff"><div style="padding:32px;text-align:center;border-bottom:1px solid #e9ddd3"><div style="font-family:Georgia,serif;font-size:30px;color:#302722">Maison JLA</div></div><div style="padding:32px"><h1 style="margin:0 0 24px;font-family:Georgia,serif;font-size:26px;font-weight:normal">Votre commande est confirmée</h1><p>Bonjour ${escapeHtml(order.lastName)},</p><p>Merci infiniment pour votre confiance. Votre commande <strong>${escapeHtml(order.reference)}</strong> a bien été confirmée.</p><div style="margin:26px 0;padding:20px;background:#fdf7f2"><p style="margin:0 0 12px;font-weight:bold">Votre sélection</p><ul style="margin:0;padding-left:18px">${items}</ul><p style="margin:18px 0 0;font-weight:bold">Livraison : ${order.deliveryMethod === "pickup" ? `point relais ${escapeHtml(order.pickupPoint || "sélectionné")}` : `${escapeHtml(order.addressLine1)}, ${escapeHtml(order.postalCode)} ${escapeHtml(order.city)}`}</p><p style="margin:8px 0 0;font-weight:bold">Total réglé : ${formatAmount(order.totalAmount)}</p></div><p>Votre facture <strong>${escapeHtml(invoiceNumber(order))}</strong> et les conditions générales de vente applicables au ${TERMS_VERSION} sont jointes à cet e-mail pour que vous puissiez les conserver.</p><p>Nous vous écrirons dès que votre commande sera expédiée.</p><p>À très vite,<br>Maison JLA</p></div><div style="padding:18px 32px;border-top:1px solid #e9ddd3;text-align:center;font-size:12px;color:#776b64">Maison JLA — Julia Touret EI<br>5 rue Joliot Curie — 80200 Flamicourt<br>maisonjla@outlook.com — 06 77 88 69 09</div></div></div>`,
   };
 }
 
@@ -140,24 +117,10 @@ module.exports = {
     const { data, where } = event.params;
     const documentId = where?.documentId || event.result?.documentId;
     const paymentConfirmed = data.paymentStatus === "paid";
-    const trackingAdded = Boolean(data.trackingNumber);
-    if (!documentId || (!paymentConfirmed && !trackingAdded)) return;
+    if (!documentId || !paymentConfirmed) return;
 
     const order = await getOrder(strapi, documentId);
     if (!order) return;
-
-    if (paymentConfirmed) {
-      try {
-        const importedOrder = await syncOrderToSendcloud(order);
-        strapi.log.info(
-          `Commande ${order.reference} importée dans Sendcloud (${importedOrder.id})`,
-        );
-      } catch (error) {
-        strapi.log.error(
-          `Échec de l'import Sendcloud pour la commande ${order.reference} : ${error.message}`,
-        );
-      }
-    }
 
     if (paymentConfirmed && !order.stockDecrementedAt) {
       try {
@@ -169,10 +132,11 @@ module.exports = {
       }
     }
 
-    if (paymentConfirmed && !trackingAdded && !order.confirmationEmailSentAt) {
+    if (paymentConfirmed && !order.confirmationEmailSentAt) {
       try {
         const email = confirmationEmail(order);
         const invoice = await createInvoicePdf(order);
+        const terms = await createTermsPdf();
         await strapi
           .plugin("email")
           .service("email")
@@ -184,6 +148,10 @@ module.exports = {
               {
                 filename: `facture-${invoiceNumber(order)}.pdf`,
                 content: invoice,
+              },
+              {
+                filename: "conditions-generales-de-vente-maison-jla.pdf",
+                content: terms,
               },
             ],
           });
@@ -201,24 +169,32 @@ module.exports = {
       }
     }
 
-    if (trackingAdded && !order.trackingEmailSentAt) {
-      const email = trackingEmail(order);
-      await strapi
-        .plugin("email")
-        .service("email")
-        .send({
-          ...emailSender(),
-          to: order.email,
-          ...email,
+    if (paymentConfirmed && !order.ntfyNotificationSentAt) {
+      try {
+        await notifyOrderPaid(order);
+        await strapi.documents("api::order.order").update({
+          documentId,
+          data: { ntfyNotificationSentAt: new Date().toISOString() },
         });
-      await strapi.documents("api::order.order").update({
-        documentId,
-        data: {
-          fulfillmentStatus: "shipped",
-          shippedAt: new Date().toISOString(),
-          trackingEmailSentAt: new Date().toISOString(),
-        },
-      });
+        strapi.log.info(`Notification ntfy envoyée pour la commande ${order.reference}`);
+      } catch (error) {
+        strapi.log.error(
+          `Échec de la notification ntfy pour la commande ${order.reference} : ${error.message}`,
+        );
+      }
+    }
+
+    if (paymentConfirmed) {
+      try {
+        const importedOrder = await syncOrderToSendcloud(order);
+        strapi.log.info(
+          `Commande ${order.reference} importée dans Sendcloud (${importedOrder.id})`,
+        );
+      } catch (error) {
+        strapi.log.error(
+          `Échec de l'import Sendcloud pour la commande ${order.reference} : ${error.message}`,
+        );
+      }
     }
   },
 };

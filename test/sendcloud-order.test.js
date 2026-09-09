@@ -103,3 +103,30 @@ test("importe avec Basic Auth et un identifiant stable pour les relances", async
   assert.equal(JSON.parse(requests[0].options.body)[0].order_id, order.documentId);
   assert.equal(JSON.parse(requests[1].options.body)[0].order_id, order.documentId);
 });
+
+test("retente une erreur Sendcloud transitoire sans dupliquer l'identifiant", async () => {
+  let calls = 0;
+  const importedOrder = await syncOrderToSendcloud(order, {
+    publicKey: "public",
+    secretKey: "secret",
+    integrationId: "42",
+    retryDelay: 0,
+    fetchImpl: async () => {
+      calls += 1;
+      return calls === 1
+        ? {
+            ok: false,
+            status: 503,
+            json: async () => ({ errors: [{ detail: "Unavailable" }] }),
+          }
+        : {
+            ok: true,
+            status: 201,
+            json: async () => ({ data: [{ id: 664 }] }),
+          };
+    },
+  });
+
+  assert.equal(calls, 2);
+  assert.equal(importedOrder.id, 664);
+});

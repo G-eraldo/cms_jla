@@ -5,9 +5,12 @@ const PDFDocument = require("pdfkit");
 const SELLER = {
   name: "Julia Touret",
   brand: "Maison JLA",
-  status: "Micro-entrepreneur",
+  status: "Entrepreneur individuel",
   address: "5 Rue Joliot Curie 80200 Flamicourt",
-  siren: "994 074 458",
+  siren: "109 541 771",
+  siret: "109 541 771 00019",
+  email: "maisonjla@outlook.com",
+  phone: "06 77 88 69 09",
   tva: "TVA non applicable, art. 293 B du CGI",
 };
 
@@ -62,7 +65,7 @@ function createInvoicePdf(order) {
       .font("Helvetica")
       .fontSize(10)
       .text(
-        `${SELLER.brand}\n${SELLER.name} — ${SELLER.status}\n${SELLER.address}\nSIREN : ${SELLER.siren}\nTVA non applicable, art. 293 B du CGI`,
+        `${SELLER.brand}\n${SELLER.name} — ${SELLER.status}\n${SELLER.address}\nSIREN : ${SELLER.siren}\nSIRET : ${SELLER.siret}\n${SELLER.email} — ${SELLER.phone}\nTVA non applicable, art. 293 B du CGI`,
         { width: 245 },
       );
     const sellerBottom = document.y;

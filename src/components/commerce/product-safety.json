@@ -6,16 +6,63 @@
   },
   "options": {},
   "attributes": {
-    "productReference": { "type": "string", "required": true, "maxLength": 100 },
+    "productReference": {
+      "type": "string",
+      "required": true,
+      "maxLength": 100
+    },
     "batchNumber": { "type": "string", "maxLength": 100 },
-    "mainMaterials": { "type": "text", "required": true, "default": "Acier inoxydable.", "maxLength": 500 },
-    "manufacturerBrand": { "type": "string", "required": true, "default": "Maison JLA", "maxLength": 100 },
-    "manufacturerCompany": { "type": "string", "required": true, "default": "Touret Julia", "maxLength": 150 },
-    "manufacturerPostalAddress": { "type": "text", "required": true, "default": "5 Rue Joliot-Curie\n80200 Doingt\nFrance", "maxLength": 500 },
-    "manufacturerEmail": { "type": "email", "required": true, "default": "maisonjla@outlook.com" },
-    "safetyWarnings": { "type": "text", "required": true, "default": "⚠️ Ne convient pas aux enfants de moins de 3 ans (présence de petites pièces – risque d’étouffement).\n\n⚠️ En cas d’irritation ou de réaction allergique, retirer immédiatement le bijou et consulter un professionnel de santé si nécessaire.\n\n⚠️ Produit non destiné à être ingéré.", "maxLength": 2000 },
-    "supplierName": { "type": "string", "required": true, "private": true, "maxLength": 150 },
-    "supplierReference": { "type": "string", "required": true, "private": true, "maxLength": 150 },
-    "riskAssessmentReference": { "type": "string", "private": true, "maxLength": 150 }
+    "mainMaterials": {
+      "type": "text",
+      "required": true,
+      "default": "Acier inoxydable.",
+      "maxLength": 500
+    },
+    "manufacturerBrand": {
+      "type": "string",
+      "required": true,
+      "default": "Maison JLA",
+      "maxLength": 100
+    },
+    "manufacturerCompany": {
+      "type": "string",
+      "required": true,
+      "default": "Touret Julia",
+      "maxLength": 150
+    },
+    "manufacturerPostalAddress": {
+      "type": "text",
+      "required": true,
+      "default": "5 Rue Joliot-Curie\n80200 Doingt\nFrance",
+      "maxLength": 500
+    },
+    "manufacturerEmail": {
+      "type": "email",
+      "required": true,
+      "default": "maisonjla@outlook.com"
+    },
+    "safetyWarnings": {
+      "type": "text",
+      "required": true,
+      "default": "⚠️ Ne convient pas aux enfants de moins de 3 ans (présence de petites pièces – risque d’étouffement).\n\n⚠️ En cas d’irritation ou de réaction allergique, retirer immédiatement le bijou et consulter un professionnel de santé si nécessaire.\n\n⚠️ Produit non destiné à être ingéré.",
+      "maxLength": 2000
+    },
+    "supplierName": {
+      "type": "string",
+      "required": true,
+      "private": true,
+      "maxLength": 150
+    },
+    "supplierReference": {
+      "type": "string",
+      "required": true,
+      "private": true,
+      "maxLength": 150
+    },
+    "riskAssessmentReference": {
+      "type": "string",
+      "private": true,
+      "maxLength": 150
+    }
   }
 }

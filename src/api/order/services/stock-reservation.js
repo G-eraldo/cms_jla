@@ -2,7 +2,11 @@
 
 const RESERVATION_MINUTES = 30;
 const { termsHash, termsSnapshot, TERMS_VERSION } = require("./terms");
-const { PromoCodeError, normalizeCode, validatePromoCode } = require("../../promo-code/services/promo-code");
+const {
+  PromoCodeError,
+  normalizeCode,
+  validatePromoCode,
+} = require("../../promo-code/services/promo-code");
 const TERMINAL_PAYMENT_STATUSES = new Set(["failed", "canceled", "expired"]);
 
 class ReservationError extends Error {
@@ -12,11 +16,16 @@ class ReservationError extends Error {
   }
 }
 
-const value = (input, maxLength = 255) => String(input || "").trim().slice(0, maxLength);
+const value = (input, maxLength = 255) =>
+  String(input || "")
+    .trim()
+    .slice(0, maxLength);
 const amount = (input) => Math.round(Number(input) * 100) / 100;
 const nowIso = () => new Date().toISOString();
 const activeReservation = (order) =>
-  order?.stockReservedAt && !order?.stockReservationReleasedAt && !order?.stockDecrementedAt;
+  order?.stockReservedAt &&
+  !order?.stockReservationReleasedAt &&
+  !order?.stockDecrementedAt;
 
 function shippingAmountFor(method, subtotalAmount) {
   if (subtotalAmount >= 60) return 0;
@@ -35,15 +44,22 @@ function normalizedLines(lines) {
     if (!productDocumentId || !Number.isInteger(quantity) || quantity < 1) {
       throw new ReservationError("Votre panier contient un article invalide.");
     }
-    grouped.set(productDocumentId, (grouped.get(productDocumentId) || 0) + quantity);
+    grouped.set(
+      productDocumentId,
+      (grouped.get(productDocumentId) || 0) + quantity,
+    );
   }
 
   const result = [...grouped]
     .map(([productDocumentId, quantity]) => ({ productDocumentId, quantity }))
-    .sort((left, right) => left.productDocumentId.localeCompare(right.productDocumentId));
+    .sort((left, right) =>
+      left.productDocumentId.localeCompare(right.productDocumentId),
+    );
 
   if (result.some((line) => line.quantity > 10)) {
-    throw new ReservationError("La quantité maximale par bijou est de 10 exemplaires.");
+    throw new ReservationError(
+      "La quantité maximale par bijou est de 10 exemplaires.",
+    );
   }
   return result;
 }
@@ -51,15 +67,30 @@ function normalizedLines(lines) {
 function normalizedPayload(payload) {
   const customer = payload?.customer || {};
   const delivery = payload?.delivery || {};
-  const required = ["firstName", "lastName", "email", "phone", "addressLine1", "postalCode", "city"];
+  const required = [
+    "firstName",
+    "lastName",
+    "email",
+    "phone",
+    "addressLine1",
+    "postalCode",
+    "city",
+  ];
   if (required.some((field) => !value(customer[field]))) {
-    throw new ReservationError("Veuillez compléter vos informations de livraison.");
+    throw new ReservationError(
+      "Veuillez compléter vos informations de livraison.",
+    );
   }
   if (!["home", "pickup"].includes(delivery.method)) {
     throw new ReservationError("Mode de livraison invalide.");
   }
-  if (delivery.method === "pickup" && (!value(delivery.pickupPoint) || !value(delivery.pickupPointId))) {
-    throw new ReservationError("Veuillez sélectionner un point relais Mondial Relay.");
+  if (
+    delivery.method === "pickup" &&
+    (!value(delivery.pickupPoint) || !value(delivery.pickupPointId))
+  ) {
+    throw new ReservationError(
+      "Veuillez sélectionner un point relais Mondial Relay.",
+    );
   }
 
   const reference = value(payload?.reference, 40);
@@ -154,13 +185,23 @@ async function reserveOrder(strapi, payload) {
 
   const products = await strapi.documents("api::product.product").findMany({
     fields: ["name", "price", "stock"],
-    filters: { documentId: { $in: input.lines.map((line) => line.productDocumentId) } },
+    filters: {
+      documentId: { $in: input.lines.map((line) => line.productDocumentId) },
+    },
     status: "published",
     limit: input.lines.length,
   });
-  const productsById = new Map(products.map((product) => [product.documentId, product]));
-  const missing = input.lines.find((line) => !productsById.has(line.productDocumentId));
-  if (missing) throw new ReservationError("Un bijou de votre panier n'est plus disponible.", 409);
+  const productsById = new Map(
+    products.map((product) => [product.documentId, product]),
+  );
+  const missing = input.lines.find(
+    (line) => !productsById.has(line.productDocumentId),
+  );
+  if (missing)
+    throw new ReservationError(
+      "Un bijou de votre panier n'est plus disponible.",
+      409,
+    );
 
   const items = input.lines.map((line) => {
     const product = productsById.get(line.productDocumentId);
@@ -168,22 +209,35 @@ async function reserveOrder(strapi, payload) {
     if (!Number.isFinite(price) || price < 0) {
       throw new ReservationError("Le prix d'un bijou est indisponible.", 503);
     }
-    return { productDocumentId: product.documentId, productName: product.name, unitPrice: price, quantity: line.quantity };
+    return {
+      productDocumentId: product.documentId,
+      productName: product.name,
+      unitPrice: price,
+      quantity: line.quantity,
+    };
   });
-  const subtotalAmount = amount(items.reduce((total, item) => total + item.unitPrice * item.quantity, 0));
+  const subtotalAmount = amount(
+    items.reduce((total, item) => total + item.unitPrice * item.quantity, 0),
+  );
   let promotion = null;
   try {
     promotion = input.promoCode
       ? await validatePromoCode(strapi, input.promoCode, subtotalAmount)
       : null;
   } catch (error) {
-    if (error instanceof PromoCodeError) throw new ReservationError(error.message, error.statusCode);
+    if (error instanceof PromoCodeError)
+      throw new ReservationError(error.message, error.statusCode);
     throw error;
   }
   const discountAmount = amount(promotion?.discountAmount || 0);
-  const shippingAmount = shippingAmountFor(input.delivery.method, subtotalAmount);
+  const shippingAmount = shippingAmountFor(
+    input.delivery.method,
+    subtotalAmount,
+  );
   const reservedAt = nowIso();
-  const expiresAt = new Date(Date.now() + RESERVATION_MINUTES * 60 * 1000).toISOString();
+  const expiresAt = new Date(
+    Date.now() + RESERVATION_MINUTES * 60 * 1000,
+  ).toISOString();
 
   try {
     return await strapi.db.transaction(async ({ trx }) => {
@@ -194,8 +248,14 @@ async function reserveOrder(strapi, payload) {
           .where({ document_id: item.productDocumentId })
           .where("stock", ">=", item.quantity)
           .decrement("stock", item.quantity);
+        strapi.log.info(
+          `[STOCK] ${item.productName} documentId=${item.productDocumentId} quantity=${item.quantity} rows=${decremented}`,
+        );
         if (decremented !== 1) {
-          throw new ReservationError(`Le stock de « ${item.productName} » vient d’être mis à jour. Veuillez actualiser votre panier.`, 409);
+          throw new ReservationError(
+            `Le stock de « ${item.productName} » vient d’être mis à jour. Veuillez actualiser votre panier.`,
+            409,
+          );
         }
       }
 
@@ -232,14 +292,20 @@ async function reserveOrder(strapi, payload) {
     });
   } catch (error) {
     if (error instanceof ReservationError) throw error;
-    throw new ReservationError("La réservation du stock est temporairement indisponible.", 503);
+    throw new ReservationError(
+      "La réservation du stock est temporairement indisponible.",
+      503,
+    );
   }
 }
 
 async function attachMolliePayment(strapi, documentId, molliePaymentId) {
   const order = await getOrder(strapi, documentId);
   if (!order || !activeReservation(order) || !value(molliePaymentId, 100)) {
-    throw new ReservationError("La réservation de commande n'est plus disponible.", 409);
+    throw new ReservationError(
+      "La réservation de commande n'est plus disponible.",
+      409,
+    );
   }
   await strapi.documents("api::order.order").update({
     documentId,
@@ -255,12 +321,19 @@ async function confirmPaidReservation(strapi, documentId, paidAt) {
   }
 
   const paidAtIso = new Date(paidAt || Date.now()).toISOString();
-  const expiredBeforePayment = !order.stockReservationExpiresAt || paidAtIso > order.stockReservationExpiresAt;
+  const expiredBeforePayment =
+    !order.stockReservationExpiresAt ||
+    paidAtIso > order.stockReservationExpiresAt;
   if (!activeReservation(order) || expiredBeforePayment) {
     await releaseReservation(strapi, documentId);
     await strapi.documents("api::order.order").update({
       documentId,
-      data: { paymentStatus: "paid", paidAt: paidAtIso, fulfillmentStatus: "canceled", refundStatus: "pending" },
+      data: {
+        paymentStatus: "paid",
+        paidAt: paidAtIso,
+        fulfillmentStatus: "canceled",
+        refundStatus: "pending",
+      },
     });
     return { refundRequired: true };
   }
@@ -275,21 +348,27 @@ async function confirmPaidReservation(strapi, documentId, paidAt) {
       .whereNull("stock_decremented_at")
       .update({ stock_decremented_at: confirmedAt }),
   );
-  if (claimed !== 1) return confirmPaidReservation(strapi, documentId, paidAtIso);
+  if (claimed !== 1)
+    return confirmPaidReservation(strapi, documentId, paidAtIso);
 
   await strapi.documents("api::order.order").update({
     documentId,
-    data: { paymentStatus: "paid", paidAt: paidAtIso, stockDecrementedAt: confirmedAt },
+    data: {
+      paymentStatus: "paid",
+      paidAt: paidAtIso,
+      stockDecrementedAt: confirmedAt,
+    },
   });
   return { refundRequired: false };
 }
 
 async function recordRefund(strapi, documentId, refund) {
-  const status = refund?.status === "refunded"
-    ? "refunded"
-    : refund?.status === "failed"
-      ? "failed"
-      : "processing";
+  const status =
+    refund?.status === "refunded"
+      ? "refunded"
+      : refund?.status === "failed"
+        ? "failed"
+        : "processing";
   await strapi.documents("api::order.order").update({
     documentId,
     data: {
@@ -301,7 +380,9 @@ async function recordRefund(strapi, documentId, refund) {
 }
 
 async function recordRefundFailure(strapi, documentId) {
-  await strapi.documents("api::order.order").update({ documentId, data: { refundStatus: "failed" } });
+  await strapi
+    .documents("api::order.order")
+    .update({ documentId, data: { refundStatus: "failed" } });
 }
 
 module.exports = {

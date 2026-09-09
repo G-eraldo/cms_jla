@@ -4,7 +4,7 @@ module.exports = {
       method: "POST",
       path: "/promo-codes/validate",
       handler: "promo-code.validate",
-      config: { auth: true, policies: [], middlewares: [] },
+      config: { policies: [], middlewares: [] },
     },
   ],
 };

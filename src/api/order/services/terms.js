@@ -9,7 +9,7 @@ const TERMS_SECTIONS = [
   {
     title: "1. Vendeuse et champ d'application",
     paragraphs: [
-      "La vendeuse est Julia Touret, entrepreneur individuel exerçant sous le nom commercial Maison JLA, 5 rue Joliot Curie, 80200 Flamicourt, France. SIREN : 109 541 771. SIRET : 109 541 771 00019. Immatriculation RCS : 109 541 771. E-mail : maisonjla@outlook.fr. Téléphone : 06 77 88 69 09.",
+      "La vendeuse est Julia Touret, entrepreneur individuel exerçant sous le nom commercial Maison JLA, 5 rue Joliot Curie, 80200 Flamicourt, France. SIREN : 109 541 771. SIRET : 109 541 771 00019. Immatriculation RCS : 109 541 771. E-mail : maisonjla@outlook.com. Téléphone : 06 77 88 69 09.",
       "Les présentes conditions générales de vente s'appliquent aux ventes en ligne de bijoux fantaisie artisanaux, assemblés, fabriqués ou revendus par Maison JLA, conclues avec des consommateurs en France métropolitaine.",
     ],
   },
@@ -93,7 +93,7 @@ const TERMS_SECTIONS = [
   {
     title: "12. Réclamations, médiation et litiges",
     paragraphs: [
-      "Toute réclamation est d'abord adressée à Maison JLA, par e-mail à maisonjla@outlook.fr ou par courrier à l'adresse de l'article 1.",
+      "Toute réclamation est d'abord adressée à Maison JLA, par e-mail à maisonjla@outlook.com ou par courrier à l'adresse de l'article 1.",
       "Après une réclamation écrite préalable restée sans solution, le client peut recourir gratuitement au Centre de la Médiation de la Consommation de Conciliateurs de Justice CM2C, 49 rue de Ponthieu, 75008 Paris, sur https://www.cm2c.net/declarer-un-litige.php.",
       "Les présentes CGV et les ventes sont soumises au droit français. A défaut d'accord amiable, le client peut saisir la juridiction compétente selon les règles de droit commun, notamment celle de son domicile dans les conditions du Code de la consommation.",
     ],
@@ -102,7 +102,7 @@ const TERMS_SECTIONS = [
     title: "Formulaire type de rétractation",
     paragraphs: [
       "A compléter et à envoyer uniquement si vous souhaitez vous rétracter.",
-      "A l'attention de Julia Touret EI - Maison JLA, 5 rue Joliot Curie, 80200 Flamicourt, maisonjla@outlook.fr.",
+      "A l'attention de Julia Touret EI - Maison JLA, 5 rue Joliot Curie, 80200 Flamicourt, maisonjla@outlook.com.",
       "Je vous notifie ma rétractation du contrat portant sur la vente des biens suivants : ............................................................",
       "Commandé(s) le : ....................   Reçu(s) le : ....................   Numéro de commande : ................................",
       "Nom et adresse du consommateur : ...............................................................................................................",

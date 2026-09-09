@@ -32,7 +32,7 @@ Ne pas employer « or », « argent », « plaqué », « vermeil », « pierre 
 | Rétractation | Obligation légale / preuve | Jusqu'à clôture | 5 ans après clôture, sauf contentieux |
 | Commande non payée | Intérêt légitime de sécurité | Réservation en cours | Suppression/anonymisation sous 30 jours |
 
-Documenter dans le registre des traitements les destinataires, les pays, DPA/SCC éventuels, habilitations, sauvegardes, procédure de violation et procédure de réponse aux droits. Répondre aux demandes d'exercice des droits à `maisonjla@outlook.fr` après vérification proportionnée de l'identité.
+Documenter dans le registre des traitements les destinataires, les pays, DPA/SCC éventuels, habilitations, sauvegardes, procédure de violation et procédure de réponse aux droits. Répondre aux demandes d'exercice des droits à `maisonjla@outlook.com` après vérification proportionnée de l'identité.
 
 ## Factures et contrats
 

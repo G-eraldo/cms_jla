@@ -9,7 +9,7 @@ const TERMS_SECTIONS = [
   {
     title: "1. Vendeuse et champ d'application",
     paragraphs: [
-      "La vendeuse est Julia Touret, entrepreneur individuel exerçant sous le nom commercial Maison JLA, 5 rue Joliot Curie, 80200 Flamicourt, France. SIREN : 109 541 771. SIRET : 109 541 771 00019. Immatriculation RCS : 109 541 771. E-mail : maisonjla@outlook.com. Téléphone : 06 77 88 69 09.",
+      "La vendeuse est Julia Touret, entrepreneur individuel exerçant sous le nom commercial Maison JLA, 5 Rue Joliot-Curie, 80200 Doingt, France. SIREN : 109 541 771. SIRET : 109 541 771 00019. Immatriculation RCS : 109 541 771. E-mail : maisonjla@outlook.com. Téléphone : 06 77 88 69 09.",
       "Les présentes conditions générales de vente s'appliquent aux ventes en ligne de bijoux fantaisie artisanaux, assemblés, fabriqués ou revendus par Maison JLA, conclues avec des consommateurs en France métropolitaine.",
     ],
   },
@@ -52,7 +52,7 @@ const TERMS_SECTIONS = [
     title: "7. Droit de rétractation et retours",
     paragraphs: [
       "Le client dispose de quatorze jours à compter du lendemain de la réception pour notifier sa rétractation, sans motif. Il peut utiliser la fonctionnalité Renoncer au contrat ici sur le site, le formulaire type ci-dessous, ou toute déclaration non ambiguë envoyée à Maison JLA.",
-      "Après notification, les produits doivent être renvoyés sous quatorze jours à Maison JLA, Julia Touret EI, 5 rue Joliot Curie, 80200 Flamicourt. Les frais directs de retour sont à la charge du client. Une dépréciation résultant de manipulations dépassant celles nécessaires pour établir la nature et les caractéristiques du bien peut engager sa responsabilité.",
+      "Après notification, les produits doivent être renvoyés sous quatorze jours à Maison JLA, Julia Touret EI, 5 Rue Joliot-Curie, 80200 Doingt. Les frais directs de retour sont à la charge du client. Une dépréciation résultant de manipulations dépassant celles nécessaires pour établir la nature et les caractéristiques du bien peut engager sa responsabilité.",
       "Maison JLA rembourse les paiements reçus, y compris la livraison standard, dans les quatorze jours suivant la notification. Le remboursement peut être différé jusqu'à la récupération du bien ou la preuve de son expédition. Il est effectué par le même moyen de paiement, sauf accord contraire et sans frais.",
     ],
   },
@@ -102,7 +102,7 @@ const TERMS_SECTIONS = [
     title: "Formulaire type de rétractation",
     paragraphs: [
       "A compléter et à envoyer uniquement si vous souhaitez vous rétracter.",
-      "A l'attention de Julia Touret EI - Maison JLA, 5 rue Joliot Curie, 80200 Flamicourt, maisonjla@outlook.com.",
+      "A l'attention de Julia Touret EI - Maison JLA, 5 Rue Joliot-Curie, 80200 Doingt, maisonjla@outlook.com.",
       "Je vous notifie ma rétractation du contrat portant sur la vente des biens suivants : ............................................................",
       "Commandé(s) le : ....................   Reçu(s) le : ....................   Numéro de commande : ................................",
       "Nom et adresse du consommateur : ...............................................................................................................",

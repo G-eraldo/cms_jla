@@ -7,7 +7,7 @@ const SELLER = {
   name: "Julia Touret",
   brand: "Maison JLA",
   status: "Entrepreneur individuel",
-  address: "5 Rue Joliot Curie 80200 Flamicourt",
+  address: "5 Rue Joliot-Curie 80200 Doingt",
   siren: "109 541 771",
   siret: "109 541 771 00019",
   email: "maisonjla@outlook.com",

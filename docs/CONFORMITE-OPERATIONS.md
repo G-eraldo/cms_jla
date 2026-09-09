@@ -36,4 +36,8 @@ Documenter dans le registre des traitements les destinataires, les pays, DPA/SCC
 
 ## Factures et contrats
 
-Les commandes enregistrent la version, l'empreinte et une copie des CGV acceptées côté serveur. Les factures payées reçoivent un numéro unique annuel, une date d'émission et une copie structurée hachée. La sauvegarde chiffrée et la procédure de restauration des archives restent à configurer et à tester avant ouverture.
+Les commandes enregistrent la version, l'empreinte et une copie des CGV acceptées côté serveur. Les factures payées reçoivent un numéro unique annuel, une date d'émission et une copie structurée hachée.
+
+Les factures PDF sont générées par Strapi puis archivées dans le bucket R2 privé `CLOUDFLARE_R2_INVOICES_BUCKET`, sous la clé `invoices/AAAA/FAC-AAAA-XXXXXX.pdf`. Le bucket ne doit pas avoir de domaine public, ni de règle CORS pour le navigateur. Strapi conserve séparément la clé, la date d'archivage et le hash SHA-256 du PDF.
+
+Avant la mise en production, créer un bucket dédié et, dans **R2 > bucket > Settings**, ajouter une règle **Bucket lock** sur le préfixe `invoices/` pour une conservation de 3 650 jours (10 ans). Créer une clé API R2 limitée en lecture/écriture à ce seul bucket, puis renseigner les quatre variables `CLOUDFLARE_R2_*` dans les secrets du CMS. Ne jamais les placer dans Nuxt ou dans un fichier commité. Une absence de ces variables bloque l'envoi de la confirmation en production afin d'éviter une facture non archivée.

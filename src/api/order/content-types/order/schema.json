@@ -58,6 +58,9 @@
     "invoiceNumber": { "type": "string", "unique": true, "private": true, "maxLength": 40 },
     "invoiceIssuedAt": { "type": "datetime", "private": true },
     "invoiceSnapshot": { "type": "json", "private": true },
-    "invoiceHash": { "type": "string", "private": true, "maxLength": 64 }
+    "invoiceHash": { "type": "string", "private": true, "maxLength": 64 },
+    "invoiceArchiveKey": { "type": "string", "private": true, "maxLength": 255 },
+    "invoiceArchivedAt": { "type": "datetime", "private": true },
+    "invoicePdfHash": { "type": "string", "private": true, "maxLength": 64 }
   }
 }

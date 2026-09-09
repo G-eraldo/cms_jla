@@ -156,6 +156,25 @@ test("ignore une ancienne alerte après la livraison", async () => {
   assert.equal(strapi.emails.length, 0);
 });
 
+test("ignore un événement transporteur plus ancien que le dernier événement traité", async () => {
+  const strapi = createStrapiMock({
+    ...baseOrder,
+    lastCarrierEventAt: "2026-09-09T12:00:00.000Z",
+  });
+  const payload = webhook({ id: 8, message: "Shipment picked up by driver" }, {
+    timestamp: Date.parse("2026-09-09T11:59:59.000Z") / 1000,
+  });
+
+  const result = await processSendcloudWebhook(
+    strapi,
+    payload,
+    Buffer.from(JSON.stringify(payload)),
+  );
+
+  assert.deepEqual(result, { ignored: true, reason: "stale_event" });
+  assert.equal(strapi.emails.length, 0);
+});
+
 test("accepte le webhook de test signé sans chercher une commande", async () => {
   const strapi = createStrapiMock(baseOrder);
   const payload = { action: "integration_updated", timestamp: 1788948000 };

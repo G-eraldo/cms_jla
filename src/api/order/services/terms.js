@@ -1,5 +1,6 @@
 "use strict";
 
+const { createHash } = require("node:crypto");
 const PDFDocument = require("pdfkit");
 
 const TERMS_VERSION = "8 septembre 2026";
@@ -8,7 +9,7 @@ const TERMS_SECTIONS = [
   {
     title: "1. Vendeuse et champ d'application",
     paragraphs: [
-      "La vendeuse est Julia Touret, entrepreneur individuel exerçant sous le nom commercial Maison JLA, 5 rue Joliot Curie, 80200 Flamicourt, France. SIREN : 109 541 771. SIRET : 109 541 771 00019. Immatriculation RCS : 109 541 771. E-mail : maisonjla@outlook.com. Téléphone : 06 77 88 69 09.",
+      "La vendeuse est Julia Touret, entrepreneur individuel exerçant sous le nom commercial Maison JLA, 5 rue Joliot Curie, 80200 Flamicourt, France. SIREN : 109 541 771. SIRET : 109 541 771 00019. Immatriculation RCS : 109 541 771. E-mail : maisonjla@outlook.fr. Téléphone : 06 77 88 69 09.",
       "Les présentes conditions générales de vente s'appliquent aux ventes en ligne de bijoux fantaisie artisanaux, assemblés, fabriqués ou revendus par Maison JLA, conclues avec des consommateurs en France métropolitaine.",
     ],
   },
@@ -60,9 +61,11 @@ const TERMS_SECTIONS = [
     boxed: true,
     paragraphs: [
       "Le consommateur dispose de deux ans à compter de la délivrance du bien pour mettre en œuvre la garantie légale de conformité. Durant ce délai, il doit établir l'existence du défaut, et non sa date d'apparition.",
+      "Lorsque le contrat de vente du bien prévoit la fourniture d'un contenu numérique ou d'un service numérique de manière continue pendant une durée supérieure à deux ans, la garantie légale est applicable à ce contenu numérique ou ce service numérique tout au long de la période de fourniture prévue. Durant ce délai, le consommateur n'est tenu d'établir que l'existence du défaut de conformité affectant le contenu numérique ou le service numérique et non la date d'apparition de celui-ci.",
+      "La garantie légale de conformité emporte obligation pour le professionnel, le cas échéant, de fournir toutes les mises à jour nécessaires au maintien de la conformité du bien.",
       "Cette garantie donne droit à la réparation ou au remplacement dans les trente jours suivant la demande, sans frais ni inconvénient majeur. Une réparation prolonge la garantie initiale de six mois. Si le client demande une réparation mais que le vendeur impose un remplacement, la garantie est renouvelée pour deux ans à compter du remplacement.",
       "Le client peut obtenir une réduction du prix en conservant le bien ou mettre fin au contrat contre restitution si Maison JLA refuse la mise en conformité, si celle-ci dépasse trente jours, occasionne un inconvénient majeur ou si le défaut persiste. La réduction ou la résolution peut être immédiate si le défaut est suffisamment grave, sans demande préalable de réparation ou de remplacement. La résolution n'est pas ouverte pour un défaut mineur.",
-      "Toute immobilisation en vue d'une réparation suspend la garantie restant à courir. Ces droits résultent des articles L. 217-1 à L. 217-32 du Code de la consommation.",
+      "Toute période d'immobilisation du bien en vue de sa réparation ou de son remplacement suspend la garantie qui restait à courir jusqu'à la délivrance du bien remis en état. Ces droits résultent des articles L. 217-1 à L. 217-32 du Code de la consommation.",
       "Le consommateur bénéficie aussi de la garantie des vices cachés des articles 1641 à 1649 du Code civil pendant deux ans à compter de la découverte du défaut. Elle donne droit à une réduction du prix si le bien est conservé ou à un remboursement intégral contre restitution.",
       "Le vendeur qui fait obstacle de mauvaise foi à la garantie légale de conformité encourt une amende civile maximale de 300 000 euros, pouvant être portée à 10 % du chiffre d'affaires moyen annuel.",
       "Pour exercer une garantie, le client contacte Maison JLA aux coordonnées de l'article 1. La mise en conformité est sans frais. Aucune garantie commerciale supplémentaire n'est proposée.",
@@ -90,7 +93,7 @@ const TERMS_SECTIONS = [
   {
     title: "12. Réclamations, médiation et litiges",
     paragraphs: [
-      "Toute réclamation est d'abord adressée à Maison JLA, par e-mail à maisonjla@outlook.com ou par courrier à l'adresse de l'article 1.",
+      "Toute réclamation est d'abord adressée à Maison JLA, par e-mail à maisonjla@outlook.fr ou par courrier à l'adresse de l'article 1.",
       "Après une réclamation écrite préalable restée sans solution, le client peut recourir gratuitement au Centre de la Médiation de la Consommation de Conciliateurs de Justice CM2C, 49 rue de Ponthieu, 75008 Paris, sur https://www.cm2c.net/declarer-un-litige.php.",
       "Les présentes CGV et les ventes sont soumises au droit français. A défaut d'accord amiable, le client peut saisir la juridiction compétente selon les règles de droit commun, notamment celle de son domicile dans les conditions du Code de la consommation.",
     ],
@@ -99,7 +102,7 @@ const TERMS_SECTIONS = [
     title: "Formulaire type de rétractation",
     paragraphs: [
       "A compléter et à envoyer uniquement si vous souhaitez vous rétracter.",
-      "A l'attention de Julia Touret EI - Maison JLA, 5 rue Joliot Curie, 80200 Flamicourt, maisonjla@outlook.com.",
+      "A l'attention de Julia Touret EI - Maison JLA, 5 rue Joliot Curie, 80200 Flamicourt, maisonjla@outlook.fr.",
       "Je vous notifie ma rétractation du contrat portant sur la vente des biens suivants : ............................................................",
       "Commandé(s) le : ....................   Reçu(s) le : ....................   Numéro de commande : ................................",
       "Nom et adresse du consommateur : ...............................................................................................................",
@@ -108,7 +111,19 @@ const TERMS_SECTIONS = [
   },
 ];
 
-function createTermsPdf() {
+const termsSnapshot = () => ({
+  version: TERMS_VERSION,
+  sections: TERMS_SECTIONS.map((section) => ({
+    title: section.title,
+    boxed: Boolean(section.boxed),
+    paragraphs: [...section.paragraphs],
+  })),
+});
+
+const termsHash = () =>
+  createHash("sha256").update(JSON.stringify(termsSnapshot())).digest("hex");
+
+function createTermsPdf(snapshot = termsSnapshot()) {
   return new Promise((resolve, reject) => {
     const document = new PDFDocument({
       size: "A4",
@@ -116,7 +131,7 @@ function createTermsPdf() {
       info: {
         Title: "Conditions générales de vente Maison JLA",
         Author: "Maison JLA - Julia Touret EI",
-        Subject: `Version du ${TERMS_VERSION}`,
+        Subject: `Version du ${snapshot.version}`,
       },
     });
     const chunks = [];
@@ -125,10 +140,10 @@ function createTermsPdf() {
     document.on("error", reject);
 
     document.fillColor("#302722").font("Helvetica-Bold").fontSize(23).text("CONDITIONS GENERALES DE VENTE");
-    document.moveDown(0.45).font("Helvetica").fontSize(10).fillColor("#776b64").text(`Maison JLA - Version en vigueur au ${TERMS_VERSION}`);
+    document.moveDown(0.45).font("Helvetica").fontSize(10).fillColor("#776b64").text(`Maison JLA - Version en vigueur au ${snapshot.version}`);
     document.moveDown(1.5).fillColor("#302722").fontSize(10).text("Les présentes conditions encadrent les commandes de bijoux passées par des consommateurs en France métropolitaine. La commande s'effectue sans création de compte.", { lineGap: 3 });
 
-    for (const section of TERMS_SECTIONS) {
+    for (const section of snapshot.sections) {
       document.moveDown(1.15);
       document.fillColor("#302722").font("Helvetica-Bold").fontSize(13).text(section.title, { keepTogether: true });
       document.moveDown(0.45);
@@ -146,4 +161,4 @@ function createTermsPdf() {
   });
 }
 
-module.exports = { createTermsPdf, TERMS_SECTIONS, TERMS_VERSION };
+module.exports = { createTermsPdf, termsSnapshot, termsHash, TERMS_SECTIONS, TERMS_VERSION };

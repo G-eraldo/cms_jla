@@ -1,0 +1,27 @@
+{
+  "kind": "collectionType",
+  "collectionName": "withdrawals",
+  "info": {
+    "singularName": "withdrawal",
+    "pluralName": "withdrawals",
+    "displayName": "Rétractation",
+    "description": "Déclarations de rétractation reçues depuis le formulaire public"
+  },
+  "options": { "draftAndPublish": false },
+  "pluginOptions": {},
+  "attributes": {
+    "reference": { "type": "string", "required": true, "unique": true, "maxLength": 48 },
+    "fingerprint": { "type": "string", "required": true, "unique": true, "private": true, "maxLength": 64 },
+    "firstName": { "type": "string", "required": true, "maxLength": 100 },
+    "lastName": { "type": "string", "required": true, "maxLength": 100 },
+    "email": { "type": "email", "required": true },
+    "orderReference": { "type": "string", "required": true, "maxLength": 100 },
+    "products": { "type": "text", "required": true, "maxLength": 2000 },
+    "orderedAt": { "type": "date", "required": true },
+    "receivedAt": { "type": "date" },
+    "declaredAt": { "type": "datetime", "required": true },
+    "sellerEmailSentAt": { "type": "datetime", "private": true },
+    "customerReceiptSentAt": { "type": "datetime", "private": true },
+    "emailStatus": { "type": "enumeration", "enum": ["pending", "partially_sent", "sent", "failed"], "required": true, "default": "pending", "private": true }
+  }
+}

@@ -3,7 +3,7 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 
-const { createInvoicePdf } = require("../src/api/order/services/invoice");
+const { createInvoicePdf, invoiceSnapshot } = require("../src/api/order/services/invoice");
 const { createTermsPdf, TERMS_SECTIONS, TERMS_VERSION } = require("../src/api/order/services/terms");
 
 const order = {
@@ -15,8 +15,11 @@ const order = {
   postalCode: "75001",
   city: "Paris",
   country: "France",
+  subtotalAmount: 19.9,
+  promoCode: "BIENVENUE10",
+  discountAmount: 1.99,
   shippingAmount: 3.9,
-  totalAmount: 23.8,
+  totalAmount: 21.81,
   paidAt: "2026-09-08T12:00:00.000Z",
   items: [{ productName: "Boucles Alba", unitPrice: 19.9, quantity: 1 }],
 };
@@ -25,6 +28,10 @@ test("génère la facture avec l'identité corrigée de la vendeuse", async () =
   const invoice = await createInvoicePdf(order);
   assert.equal(invoice.subarray(0, 4).toString(), "%PDF");
   assert.ok(invoice.length > 2000);
+  assert.deepEqual(
+    { promoCode: invoiceSnapshot(order).promoCode, discountAmount: invoiceSnapshot(order).discountAmount },
+    { promoCode: "BIENVENUE10", discountAmount: 1.99 },
+  );
 });
 
 test("génère une copie durable et versionnée des CGV", async () => {

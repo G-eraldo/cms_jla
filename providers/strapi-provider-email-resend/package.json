@@ -1,0 +1,9 @@
+{
+  "name": "strapi-provider-email-resend",
+  "version": "1.0.0",
+  "private": true,
+  "main": "index.js",
+  "peerDependencies": {
+    "resend": "^6.26.0"
+  }
+}

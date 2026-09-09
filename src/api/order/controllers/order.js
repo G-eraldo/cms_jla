@@ -5,10 +5,80 @@ const {
   processSendcloudWebhook,
   verifySendcloudSignature,
 } = require("../services/sendcloud-webhook");
+const {
+  ReservationError,
+  attachMolliePayment,
+  confirmPaidReservation,
+  recordRefund,
+  recordRefundFailure,
+  releaseReservation,
+  reserveOrder,
+} = require("../services/stock-reservation");
 
 const UNPARSED_BODY = Symbol.for("unparsedBody");
 
 module.exports = createCoreController("api::order.order", ({ strapi }) => ({
+  async reserve(ctx) {
+    try {
+      const order = await reserveOrder(strapi, ctx.request.body?.data);
+      ctx.status = 201;
+      return this.transformResponse(order);
+    } catch (error) {
+      if (error instanceof ReservationError) return ctx.throw(error.statusCode, error.message);
+      throw error;
+    }
+  },
+
+  async attachPayment(ctx) {
+    try {
+      await attachMolliePayment(strapi, ctx.params.documentId, ctx.request.body?.data?.molliePaymentId);
+      ctx.status = 204;
+    } catch (error) {
+      if (error instanceof ReservationError) return ctx.throw(error.statusCode, error.message);
+      throw error;
+    }
+  },
+
+  async releaseReservation(ctx) {
+    try {
+      await releaseReservation(strapi, ctx.params.documentId);
+      ctx.status = 204;
+    } catch (error) {
+      if (error instanceof ReservationError) return ctx.throw(error.statusCode, error.message);
+      throw error;
+    }
+  },
+
+  async confirmPaidReservation(ctx) {
+    try {
+      const result = await confirmPaidReservation(strapi, ctx.params.documentId, ctx.request.body?.data?.paidAt);
+      ctx.body = { data: result };
+    } catch (error) {
+      if (error instanceof ReservationError) return ctx.throw(error.statusCode, error.message);
+      throw error;
+    }
+  },
+
+  async recordRefund(ctx) {
+    try {
+      await recordRefund(strapi, ctx.params.documentId, ctx.request.body?.data?.refund);
+      ctx.status = 204;
+    } catch (error) {
+      if (error instanceof ReservationError) return ctx.throw(error.statusCode, error.message);
+      throw error;
+    }
+  },
+
+  async recordRefundFailure(ctx) {
+    try {
+      await recordRefundFailure(strapi, ctx.params.documentId);
+      ctx.status = 204;
+    } catch (error) {
+      if (error instanceof ReservationError) return ctx.throw(error.statusCode, error.message);
+      throw error;
+    }
+  },
+
   async sendcloudWebhook(ctx) {
     const secret = process.env.SENDCLOUD_SECRET_KEY;
     const signature = ctx.request.headers["sendcloud-signature"];

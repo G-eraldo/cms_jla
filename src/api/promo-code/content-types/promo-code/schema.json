@@ -1,0 +1,38 @@
+{
+  "kind": "collectionType",
+  "collectionName": "promo_codes",
+  "info": {
+    "singularName": "promo-code",
+    "pluralName": "promo-codes",
+    "displayName": "Code promo"
+  },
+  "options": {
+    "draftAndPublish": true
+  },
+  "attributes": {
+    "code": {
+      "type": "string",
+      "required": true,
+      "unique": true,
+      "minLength": 2,
+      "maxLength": 40
+    },
+    "kind": {
+      "type": "enumeration",
+      "enum": [
+        "percentage",
+        "fixed"
+      ],
+      "required": true
+    },
+    "value": {
+      "type": "decimal",
+      "required": true,
+      "min": 0.01
+    },
+    "endsAt": {
+      "type": "datetime",
+      "required": true
+    }
+  }
+}

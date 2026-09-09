@@ -1,3 +1,13 @@
+const corsOrigins = (process.env.CORS_ORIGINS || [
+  "https://maisonjla.lafabriqueducode.fr",
+  "https://maisonjla.fr",
+  "https://www.maisonjla.fr",
+  "http://localhost:3000",
+].join(","))
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
 module.exports = [
   "strapi::logger",
   "strapi::errors",
@@ -7,7 +17,7 @@ module.exports = [
       contentSecurityPolicy: {
         useDefaults: true,
         directives: {
-          "connect-src": ["'self'", "https:"],
+          "connect-src": ["'self'"],
           "img-src": [
             "'self'",
             "data:",
@@ -27,12 +37,27 @@ module.exports = [
       },
     },
   },
-  "strapi::cors",
-  "strapi::poweredBy",
+  {
+    name: "strapi::cors",
+    config: {
+      origin: corsOrigins,
+      methods: ["GET", "POST", "PUT", "DELETE"],
+      headers: ["Content-Type", "Authorization"],
+      credentials: false,
+      keepHeaderOnError: true,
+    },
+  },
   "strapi::query",
   {
     name: "strapi::body",
     config: {
+      jsonLimit: "32kb",
+      formLimit: "32kb",
+      formidable: {
+        maxFileSize: 5 * 1024 * 1024,
+        maxTotalFileSize: 5 * 1024 * 1024,
+        maxFields: 20,
+      },
       // Sendcloud signe les octets exacts du corps HTTP. Koa doit donc les conserver.
       includeUnparsed: true,
     },

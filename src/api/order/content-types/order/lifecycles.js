@@ -1,9 +1,10 @@
 "use strict";
 
-const { createInvoicePdf, invoiceNumber } = require("../../services/invoice");
+const { createInvoicePdf, ensureInvoice, invoiceHash, invoiceNumber, invoiceSnapshot } = require("../../services/invoice");
 const { syncOrderToSendcloud } = require("../../services/sendcloud");
-const { createTermsPdf, TERMS_VERSION } = require("../../services/terms");
+const { createTermsPdf, termsHash, termsSnapshot, TERMS_VERSION } = require("../../services/terms");
 const { notifyOrderPaid } = require("../../services/ntfy");
+const { TERMINAL_PAYMENT_STATUSES, releaseReservation } = require("../../services/stock-reservation");
 
 const escapeHtml = (value) =>
   String(value || "").replace(
@@ -38,11 +39,25 @@ async function getOrder(strapi, documentId) {
       "deliveryMethod",
       "pickupPoint",
       "pickupPointId",
+      "subtotalAmount",
+      "promoCode",
+      "promoKind",
+      "promoValue",
+      "discountAmount",
       "shippingAmount",
       "totalAmount",
       "currency",
       "createdAt",
       "paidAt",
+      "invoiceNumber",
+      "invoiceIssuedAt",
+      "invoiceSnapshot",
+      "invoiceHash",
+      "termsVersion",
+      "termsHash",
+      "termsSnapshot",
+      "termsAcceptedAt",
+      "refundStatus",
       "stockDecrementedAt",
       "confirmationEmailSentAt",
       "ntfyNotificationSentAt",
@@ -55,48 +70,6 @@ async function getOrder(strapi, documentId) {
   });
 }
 
-async function decrementStock(strapi, order) {
-  const products = await Promise.all(
-    order.items.map((item) =>
-      strapi.documents("api::product.product").findOne({
-        documentId: item.productDocumentId,
-        fields: ["name", "stock"],
-      }),
-    ),
-  );
-
-  const unavailableItem = order.items.find(
-    (item, index) =>
-      !products[index] ||
-      !Number.isInteger(products[index].stock) ||
-      products[index].stock < item.quantity,
-  );
-  if (unavailableItem) {
-    strapi.log.error(
-      `Stock insuffisant après paiement pour la commande ${order.reference} : ${unavailableItem.productName}`,
-    );
-    return false;
-  }
-
-  await Promise.all(
-    order.items.map((item, index) =>
-      strapi.documents("api::product.product").update({
-        documentId: products[index].documentId,
-        data: { stock: products[index].stock - item.quantity },
-        status: "published",
-      }),
-    ),
-  );
-
-  await strapi.documents("api::order.order").update({
-    documentId: order.documentId,
-    data: { stockDecrementedAt: new Date().toISOString() },
-  });
-
-  strapi.log.info(`Stock décrémenté pour la commande ${order.reference}`);
-  return true;
-}
-
 function confirmationEmail(order) {
   const items = order.items
     .map(
@@ -104,11 +77,17 @@ function confirmationEmail(order) {
         `<li style="margin:0 0 8px">${escapeHtml(item.productName)} × ${item.quantity} — ${formatAmount(Number(item.unitPrice) * item.quantity)}</li>`,
     )
     .join("");
+  const discount = Number(order.discountAmount) > 0
+    ? ` Remise ${order.promoCode} : −${formatAmount(order.discountAmount)}.`
+    : "";
+  const discountHtml = Number(order.discountAmount) > 0
+    ? `<p style="margin:8px 0 0;color:#287245">Code promo ${escapeHtml(order.promoCode)} : − ${formatAmount(order.discountAmount)}</p>`
+    : "";
 
   return {
     subject: `Commande ${order.reference} confirmée — Maison JLA`,
-    text: `Bonjour ${order.lastName}, votre commande ${order.reference} est confirmée. Montant total : ${formatAmount(order.totalAmount)}. Livraison : ${order.deliveryMethod === "pickup" ? `point relais ${order.pickupPoint || "sélectionné"}` : `${order.addressLine1}, ${order.postalCode} ${order.city}`}. Votre facture ${invoiceNumber(order)} et les CGV du ${TERMS_VERSION} sont jointes à cet e-mail. Nous vous écrirons dès son expédition.`,
-    html: `<div style="margin:0;padding:40px 20px;background:#f5eee6;font-family:Arial,sans-serif;color:#302722"><div style="max-width:600px;margin:0 auto;background:#ffffff"><div style="padding:32px;text-align:center;border-bottom:1px solid #e9ddd3"><div style="font-family:Georgia,serif;font-size:30px;color:#302722">Maison JLA</div></div><div style="padding:32px"><h1 style="margin:0 0 24px;font-family:Georgia,serif;font-size:26px;font-weight:normal">Votre commande est confirmée</h1><p>Bonjour ${escapeHtml(order.lastName)},</p><p>Merci infiniment pour votre confiance. Votre commande <strong>${escapeHtml(order.reference)}</strong> a bien été confirmée.</p><div style="margin:26px 0;padding:20px;background:#fdf7f2"><p style="margin:0 0 12px;font-weight:bold">Votre sélection</p><ul style="margin:0;padding-left:18px">${items}</ul><p style="margin:18px 0 0;font-weight:bold">Livraison : ${order.deliveryMethod === "pickup" ? `point relais ${escapeHtml(order.pickupPoint || "sélectionné")}` : `${escapeHtml(order.addressLine1)}, ${escapeHtml(order.postalCode)} ${escapeHtml(order.city)}`}</p><p style="margin:8px 0 0;font-weight:bold">Total réglé : ${formatAmount(order.totalAmount)}</p></div><p>Votre facture <strong>${escapeHtml(invoiceNumber(order))}</strong> et les conditions générales de vente applicables au ${TERMS_VERSION} sont jointes à cet e-mail pour que vous puissiez les conserver.</p><p>Nous vous écrirons dès que votre commande sera expédiée.</p><p>À très vite,<br>Maison JLA</p></div><div style="padding:18px 32px;border-top:1px solid #e9ddd3;text-align:center;font-size:12px;color:#776b64">Maison JLA — Julia Touret EI<br>5 rue Joliot Curie — 80200 Flamicourt<br>maisonjla@outlook.com — 06 77 88 69 09</div></div></div>`,
+    text: `Bonjour ${order.lastName}, votre commande ${order.reference} est confirmée.${discount} Montant total : ${formatAmount(order.totalAmount)}. Livraison : ${order.deliveryMethod === "pickup" ? `point relais ${order.pickupPoint || "sélectionné"}` : `${order.addressLine1}, ${order.postalCode} ${order.city}`}. Votre facture ${invoiceNumber(order)} et les CGV du ${TERMS_VERSION} sont jointes à cet e-mail. Nous vous écrirons dès son expédition.`,
+    html: `<div style="margin:0;padding:40px 20px;background:#f5eee6;font-family:Arial,sans-serif;color:#302722"><div style="max-width:600px;margin:0 auto;background:#ffffff"><div style="padding:32px;text-align:center;border-bottom:1px solid #e9ddd3"><div style="font-family:Georgia,serif;font-size:30px;color:#302722">Maison JLA</div></div><div style="padding:32px"><h1 style="margin:0 0 24px;font-family:Georgia,serif;font-size:26px;font-weight:normal">Votre commande est confirmée</h1><p>Bonjour ${escapeHtml(order.lastName)},</p><p>Merci infiniment pour votre confiance. Votre commande <strong>${escapeHtml(order.reference)}</strong> a bien été confirmée.</p><div style="margin:26px 0;padding:20px;background:#fdf7f2"><p style="margin:0 0 12px;font-weight:bold">Votre sélection</p><ul style="margin:0;padding-left:18px">${items}</ul>${discountHtml}<p style="margin:18px 0 0;font-weight:bold">Livraison : ${order.deliveryMethod === "pickup" ? `point relais ${escapeHtml(order.pickupPoint || "sélectionné")}` : `${escapeHtml(order.addressLine1)}, ${escapeHtml(order.postalCode)} ${escapeHtml(order.city)}`}</p><p style="margin:8px 0 0;font-weight:bold">Total réglé : ${formatAmount(order.totalAmount)}</p></div><p>Votre facture <strong>${escapeHtml(invoiceNumber(order))}</strong> et les conditions générales de vente applicables au ${TERMS_VERSION} sont jointes à cet e-mail pour que vous puissiez les conserver.</p><p>Nous vous écrirons dès que votre commande sera expédiée.</p><p>À très vite,<br>Maison JLA</p></div><div style="padding:18px 32px;border-top:1px solid #e9ddd3;text-align:center;font-size:12px;color:#776b64">Maison JLA — Julia Touret EI<br>5 rue Joliot Curie — 80200 Flamicourt<br>maisonjla@outlook.fr — 06 77 88 69 09</div></div></div>`,
   };
 }
 
@@ -117,26 +96,48 @@ module.exports = {
     const { data, where } = event.params;
     const documentId = where?.documentId || event.result?.documentId;
     const paymentConfirmed = data.paymentStatus === "paid";
-    if (!documentId || !paymentConfirmed) return;
+    const paymentEnded = TERMINAL_PAYMENT_STATUSES.has(data.paymentStatus);
+    if (!documentId || (!paymentConfirmed && !paymentEnded)) return;
+
+    if (paymentEnded) {
+      try {
+        await releaseReservation(strapi, documentId);
+      } catch (error) {
+        strapi.log.error(`Échec de la libération de stock pour la commande ${documentId} : ${error.message}`);
+      }
+      return;
+    }
 
     const order = await getOrder(strapi, documentId);
     if (!order) return;
+    if (!order.stockDecrementedAt || order.refundStatus !== "not_required") return;
 
-    if (paymentConfirmed && !order.stockDecrementedAt) {
+    if (paymentConfirmed && !order.invoiceNumber) {
       try {
-        await decrementStock(strapi, order);
+        await ensureInvoice(strapi, documentId);
       } catch (error) {
-        strapi.log.error(
-          `Échec du décrément de stock pour la commande ${order.reference} : ${error.message}`,
-        );
+        strapi.log.error(`Échec de l'attribution de la facture pour ${order.reference} : ${error.message}`);
+        return;
       }
     }
 
-    if (paymentConfirmed && !order.confirmationEmailSentAt) {
+    const invoicedOrder = await getOrder(strapi, documentId);
+    if (!invoicedOrder) return;
+    if (paymentConfirmed && !invoicedOrder.invoiceSnapshot) {
+      const snapshot = invoiceSnapshot(invoicedOrder);
+      await strapi.documents("api::order.order").update({
+        documentId,
+        data: { invoiceSnapshot: snapshot, invoiceHash: invoiceHash(snapshot) },
+      });
+    }
+
+    if (paymentConfirmed && !invoicedOrder.confirmationEmailSentAt) {
       try {
-        const email = confirmationEmail(order);
-        const invoice = await createInvoicePdf(order);
-        const terms = await createTermsPdf();
+        const finalOrder = await getOrder(strapi, documentId);
+        const email = confirmationEmail(finalOrder);
+        const invoice = await createInvoicePdf(finalOrder);
+        const snapshot = finalOrder.termsSnapshot || termsSnapshot();
+        const terms = await createTermsPdf(snapshot);
         await strapi
           .plugin("email")
           .service("email")
@@ -151,7 +152,7 @@ module.exports = {
               },
               {
                 filename: "conditions-generales-de-vente-maison-jla.pdf",
-                content: terms,
+              content: terms,
               },
             ],
           });
@@ -160,11 +161,11 @@ module.exports = {
           data: { confirmationEmailSentAt: new Date().toISOString() },
         });
         strapi.log.info(
-          `E-mail de confirmation envoyé pour la commande ${order.reference}`,
+          `E-mail de confirmation envoyé pour la commande ${finalOrder.reference}`,
         );
       } catch (error) {
         strapi.log.error(
-          `Échec de l'e-mail de confirmation pour la commande ${order.reference} : ${error.message}`,
+          `Échec de l'e-mail de confirmation pour la commande ${invoicedOrder.reference} : ${error.message}`,
         );
       }
     }

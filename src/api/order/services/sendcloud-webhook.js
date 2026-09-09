@@ -16,7 +16,10 @@ const ORDER_FIELDS = [
   "carrier",
   "shippedAt",
   "trackingEmailSentAt",
+  "lastCarrierEventAt",
 ];
+
+const eventsInFlight = new Set();
 
 const STATUS_RANK = {
   pending: 0,
@@ -136,6 +139,10 @@ async function processSendcloudWebhook(strapi, payload, rawBody) {
   const eventHash = crypto.createHash("sha256").update(rawBody).digest("hex");
   const eventStore = storeFor(strapi, `event:${eventHash}`);
   if (await eventStore.get()) return { duplicate: true };
+  if (eventsInFlight.has(eventHash)) return { duplicate: true };
+  eventsInFlight.add(eventHash);
+
+  try {
 
   const order = await findOrder(strapi, payload.parcel);
   if (!order) {
@@ -143,6 +150,12 @@ async function processSendcloudWebhook(strapi, payload, rawBody) {
       `Webhook Sendcloud ignoré : commande ${payload.parcel.order_number || payload.parcel.external_order_id || "inconnue"} absente de Strapi.`,
     );
     return { ignored: true, reason: "order_not_found" };
+  }
+
+  const receivedAt = eventDate(payload);
+  if (order.lastCarrierEventAt && receivedAt <= order.lastCarrierEventAt) {
+    await eventStore.set({ value: { processedAt: new Date().toISOString(), order: order.reference } });
+    return { ignored: true, reason: "stale_event" };
   }
 
   const status = classifyParcelStatus(payload.parcel.status);
@@ -153,12 +166,13 @@ async function processSendcloudWebhook(strapi, payload, rawBody) {
   const tracking = parcelTracking(payload.parcel);
   const update = {
     ...tracking,
+    lastCarrierEventAt: receivedAt,
     ...(nextFulfillmentStatus !== order.fulfillmentStatus
       ? { fulfillmentStatus: nextFulfillmentStatus }
       : {}),
   };
   if (nextFulfillmentStatus === "shipped" && !order.shippedAt) {
-    update.shippedAt = eventDate(payload);
+    update.shippedAt = receivedAt;
   }
   Object.keys(update).forEach((key) => update[key] === undefined && delete update[key]);
 
@@ -217,6 +231,9 @@ async function processSendcloudWebhook(strapi, payload, rawBody) {
     fulfillmentStatus: nextFulfillmentStatus,
     notificationSent,
   };
+  } finally {
+    eventsInFlight.delete(eventHash);
+  }
 }
 
 module.exports = {

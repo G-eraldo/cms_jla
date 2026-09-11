@@ -9,7 +9,7 @@ const TERMS_SECTIONS = [
   {
     title: "1. Vendeuse et champ d'application",
     paragraphs: [
-      "La vendeuse est Julia Touret, entrepreneur individuel exerçant sous le nom commercial Maison JLA, 5 Rue Joliot-Curie, 80200 Doingt, France. SIREN : 109 541 771. SIRET : 109 541 771 00019. La ville du greffe RCS sera indiquée dès confirmation de l'extrait officiel. TVA non applicable, article 293 B du CGI. E-mail : contact@maisonjla.fr. Téléphone : 06 77 88 69 09.",
+      "La vendeuse est Julia Touret, entrepreneur individuel exerçant sous le nom commercial Maison JLA, 5 Rue Joliot-Curie, 80200 Doingt, France. SIREN : 109 541 771. SIRET : 109 541 771 00019. RCS Amiens 109 541 771. TVA non applicable, article 293 B du CGI. E-mail : contact@maisonjla.fr. Téléphone : 06 77 88 69 09.",
       "Les présentes conditions générales de vente s'appliquent aux ventes en ligne de bijoux fantaisie artisanaux, assemblés, fabriqués ou revendus par Maison JLA, conclues avec des consommateurs en France métropolitaine.",
     ],
   },

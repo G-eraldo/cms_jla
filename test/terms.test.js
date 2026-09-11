@@ -12,5 +12,5 @@ test("l'encadré de garantie reprend le modèle D. 211-2", () => {
   assert.match(text, /L\. 241-5/);
   assert.match(text, /1641 à 1649/);
   assert.equal(termsHash(), termsHash());
-  assert.equal(termsSnapshot().sections[0].paragraphs[0].includes("ville du greffe"), true);
+  assert.equal(termsSnapshot().sections[0].paragraphs[0].includes("RCS Amiens"), true);
 });

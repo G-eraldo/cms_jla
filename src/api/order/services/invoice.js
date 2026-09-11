@@ -10,6 +10,7 @@ const SELLER = {
   address: "5 Rue Joliot-Curie 80200 Doingt",
   siren: "109 541 771",
   siret: "109 541 771 00019",
+  rcs: "RCS Amiens 109 541 771",
   email: "contact@maisonjla.fr",
   phone: "06 77 88 69 09",
   tva: "TVA non applicable, art. 293 B du CGI",
@@ -151,7 +152,7 @@ function createInvoicePdf(order) {
       .font("Helvetica")
       .fontSize(10)
       .text(
-        `${seller.brand}\n${seller.name} — ${seller.status}\n${seller.address}\nSIREN : ${seller.siren}\nSIRET : ${seller.siret}\n${seller.email} — ${seller.phone}\nTVA non applicable, art. 293 B du CGI`,
+        `${seller.brand}\n${seller.name} — ${seller.status}\n${seller.address}\nSIREN : ${seller.siren}\nSIRET : ${seller.siret}\n${seller.rcs || "RCS Amiens 109 541 771"}\n${seller.email} — ${seller.phone}\nTVA non applicable, art. 293 B du CGI`,
         { width: 245 },
       );
     const sellerBottom = document.y;

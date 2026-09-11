@@ -32,20 +32,89 @@ function emailLayout(order, title, content, trackingUrl) {
   return `<div style="margin:0;padding:40px 20px;background:#f5eee6;font-family:Arial,sans-serif;color:#302722"><div style="max-width:600px;margin:0 auto;background:#ffffff"><div style="padding:32px;text-align:center;border-bottom:1px solid #e9ddd3"><div style="font-family:Georgia,serif;font-size:30px">Maison JLA</div></div><div style="padding:32px"><h1 style="margin:0 0 24px;font-family:Georgia,serif;font-size:26px;font-weight:normal">${escapeHtml(title)}</h1><p>Bonjour ${escapeHtml(order.firstName)},</p>${content}${action}<p style="margin-top:28px">À très vite,<br>Maison JLA</p></div><div style="padding:18px 32px;border-top:1px solid #e9ddd3;text-align:center;font-size:12px;color:#776b64">Maison JLA — Julia Touret EI<br>5 Rue Joliot-Curie — 80200 Doingt<br>contact@maisonjla.fr — 06 77 88 69 09</div></div></div>`;
 }
 
+function formatCarrierDate(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return new Intl.DateTimeFormat("fr-FR", {
+    dateStyle: "long",
+    timeZone: "Europe/Paris",
+  }).format(date);
+}
+
+function carrierStatusLabel(value) {
+  const label = String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  const known = [
+    [/ready to send|etiquette|announced/, "Étiquette créée, colis annoncé au transporteur"],
+    [/shipment picked up|picked up by driver/, "Prise en charge par le transporteur"],
+    [/en route to sorting|sorting cent/, "En route vers le centre de tri"],
+    [/being sorted|sorted/, "En cours de tri"],
+    [/parcel en route|shipment on route|in transit|en cours de livraison/, "En cours d’acheminement"],
+    [/out for delivery|driver en route/, "En cours de livraison"],
+    [/awaiting customer pickup|ready (for|at) pickup|point relais/, "Disponible en point relais"],
+    [/delivered|livre/, "Livré"],
+  ];
+  for (const [pattern, french] of known) {
+    if (pattern.test(label)) return french;
+  }
+  return String(value || "").trim();
+}
+
+function shipmentDetailsBox(order, reference) {
+  const rows = [];
+  const carrier = order.carrier || order.shipmentName;
+  if (carrier) rows.push(`<p style="margin:0 0 8px"><strong>Transporteur :</strong> ${escapeHtml(carrier)}</p>`);
+  if (order.carrierStatus) {
+    rows.push(
+      `<p style="margin:0 0 8px"><strong>Statut :</strong> ${escapeHtml(carrierStatusLabel(order.carrierStatus))}</p>`,
+    );
+  }
+  if (order.deliveryMethod === "pickup") {
+    rows.push(
+      `<p style="margin:0 0 8px"><strong>Livraison :</strong> point relais ${escapeHtml(order.pickupPoint || "sélectionné")}</p>`,
+    );
+  } else {
+    const city = [order.postalCode, order.city || order.destinationCity].filter(Boolean).join(" ");
+    if (city) rows.push(`<p style="margin:0 0 8px"><strong>Livraison :</strong> à domicile, ${escapeHtml(city)}</p>`);
+  }
+  if (order.expectedDeliveryDate) {
+    rows.push(
+      `<p style="margin:0 0 8px"><strong>Livraison estimée :</strong> ${escapeHtml(formatCarrierDate(order.expectedDeliveryDate))}</p>`,
+    );
+  }
+  if (order.trackingNumber) {
+    rows.push(`<p style="margin:0"><strong>Numéro de suivi :</strong><br>${escapeHtml(order.trackingNumber)}</p>`);
+  }
+  return `<div style="margin:18px 0;padding:18px;background:#fdf7f2">${rows.join("")}</div>`;
+}
+
 function buildOrderNotification(order, type) {
   const reference = escapeHtml(order.reference);
   const carrier = order.carrier ? ` avec ${escapeHtml(order.carrier)}` : "";
-  const trackingNumber = order.trackingNumber
-    ? `<p style="margin:18px 0;padding:18px;background:#fdf7f2"><strong>Numéro de suivi :</strong><br>${escapeHtml(order.trackingNumber)}</p>`
-    : `<p style="margin:18px 0;padding:18px;background:#fdf7f2">Cette expédition n’a pas de suivi transporteur. Conservez votre numéro de commande <strong>${reference}</strong>.</p>`;
+  const trackingNumber = shipmentDetailsBox(order, reference);
   const pickupPoint = escapeHtml(order.pickupPoint || "votre point relais");
+  const statusLine = order.carrierStatus
+    ? ` Statut : ${carrierStatusLabel(order.carrierStatus)}.`
+    : "";
+  const estimated = order.expectedDeliveryDate
+    ? ` Livraison estimée : ${formatCarrierDate(order.expectedDeliveryDate)}.`
+    : "";
 
   const notifications = {
     shipped: {
       subject: `Votre commande ${order.reference} est expédiée — Maison JLA`,
       title: "Votre commande est en route",
-      text: `Bonjour ${order.firstName}, votre commande ${order.reference} a été confiée au transporteur${order.carrier ? ` avec ${order.carrier}` : ""}.${order.trackingNumber ? ` Numéro de suivi : ${order.trackingNumber}.` : " Cette expédition n’a pas de suivi transporteur."}${safeUrl(order.trackingUrl) ? ` Suivre le colis : ${safeUrl(order.trackingUrl)}` : ""}`,
+      text: `Bonjour ${order.firstName}, votre commande ${order.reference} a été confiée au transporteur${order.carrier ? ` avec ${order.carrier}` : ""}.${order.trackingNumber ? ` Numéro de suivi : ${order.trackingNumber}.` : ""}${safeUrl(order.trackingUrl) ? ` Suivre le colis : ${safeUrl(order.trackingUrl)}` : ""}`,
       content: `<p>Votre commande <strong>${reference}</strong> a été confiée au transporteur${carrier}.</p>${trackingNumber}`,
+    },
+    in_transit: {
+      subject: `Votre commande ${order.reference} est en cours de livraison — Maison JLA`,
+      title: "Votre commande est en cours de livraison",
+      text: `Bonjour ${order.firstName}, votre commande ${order.reference} est en cours d’acheminement${order.carrier ? ` avec ${order.carrier}` : ""}.${statusLine}${order.trackingNumber ? ` Numéro de suivi : ${order.trackingNumber}.` : ""}${estimated}${safeUrl(order.trackingUrl) ? ` Suivre le colis : ${safeUrl(order.trackingUrl)}` : ""}`,
+      content: `<p>Votre commande <strong>${reference}</strong> a été prise en charge et est actuellement en cours de livraison${carrier}.</p>${trackingNumber}`,
     },
     pickup: {
       subject: `Votre commande ${order.reference} est arrivée au point relais — Maison JLA`,
@@ -101,6 +170,7 @@ async function sendOrderNotification(strapi, order, type) {
 
 module.exports = {
   buildOrderNotification,
+  carrierStatusLabel,
   safeUrl,
   sendOrderNotification,
 };

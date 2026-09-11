@@ -8,6 +8,8 @@ const ORDER_FIELDS = [
   "firstName",
   "lastName",
   "email",
+  "city",
+  "postalCode",
   "deliveryMethod",
   "pickupPoint",
   "fulfillmentStatus",
@@ -20,6 +22,7 @@ const ORDER_FIELDS = [
 ];
 
 const eventsInFlight = new Set();
+const ordersNotifying = new Set();
 
 const STATUS_RANK = {
   pending: 0,
@@ -77,11 +80,11 @@ function classifyParcelStatus(status = {}) {
     id === 22 ||
     id === 91 ||
     id === 92 ||
-    /shipment picked up|shipment on route|parcel en route|en route|in transit|sorting cent(re|er)|sorted|on its way|expedie/.test(
+    /shipment picked up|shipment on route|parcel en route|en route|in transit|sorting cent(re|er)|sorted|on its way|expedie|out for delivery|en cours de livraison/.test(
       label,
     )
   ) {
-    return { fulfillmentStatus: "shipped", notificationType: "shipped" };
+    return { fulfillmentStatus: "shipped", notificationType: "in_transit" };
   }
   // Creating a label (Ready to send / Announced) is when the customer should
   // receive tracking. Unstamped letters often never get a later transit scan.
@@ -103,6 +106,14 @@ function classifyParcelStatus(status = {}) {
     return { fulfillmentStatus: "processing", notificationType: null };
   }
   return { fulfillmentStatus: null, notificationType: null };
+}
+
+function resolveNotificationType(status, tracking, order) {
+  let type = status?.notificationType || null;
+  const hasTracking = Boolean(tracking?.trackingNumber);
+  if ((type === "shipped" || type === "in_transit") && !hasTracking) return null;
+  if (type === "in_transit" && !order?.trackingEmailSentAt) return "shipped";
+  return type;
 }
 
 function eventDate(payload) {
@@ -150,6 +161,25 @@ function parcelTracking(parcel) {
   };
 }
 
+function parcelDetails(parcel) {
+  const destination =
+    parcel.to_city ||
+    parcel.to?.city ||
+    parcel.address?.city ||
+    parcel.to_service_point?.city;
+  const expected =
+    parcel.expected_delivery_date ||
+    parcel.to_service_point?.expected_delivery_date ||
+    parcel.shipment?.expected_delivery_date;
+
+  return {
+    carrierStatus: parcel.status?.message || parcel.status?.code || undefined,
+    shipmentName: parcel.shipment?.name || undefined,
+    destinationCity: destination || undefined,
+    expectedDeliveryDate: expected || undefined,
+  };
+}
+
 async function processSendcloudWebhook(strapi, payload, rawBody) {
   if (payload?.action !== "parcel_status_changed") {
     return { ignored: true, action: payload?.action || "unknown" };
@@ -181,19 +211,19 @@ async function processSendcloudWebhook(strapi, payload, rawBody) {
   }
 
   const status = classifyParcelStatus(payload.parcel.status);
-  const trackingPreview = parcelTracking(payload.parcel);
+  const tracking = parcelTracking(payload.parcel);
   const trackingJustAppeared =
-    Boolean(trackingPreview.trackingNumber) &&
-    trackingPreview.trackingNumber !== order.trackingNumber;
+    Boolean(tracking.trackingNumber) &&
+    tracking.trackingNumber !== order.trackingNumber;
   if (trackingJustAppeared && !status.notificationType) {
     status.fulfillmentStatus = status.fulfillmentStatus || "shipped";
     status.notificationType = "shipped";
   }
+  status.notificationType = resolveNotificationType(status, tracking, order);
   const nextFulfillmentStatus = forwardStatus(
     order.fulfillmentStatus,
     status.fulfillmentStatus,
   );
-  const tracking = parcelTracking(payload.parcel);
   const update = {
     ...tracking,
     lastCarrierEventAt: receivedAt,
@@ -218,37 +248,47 @@ async function processSendcloudWebhook(strapi, payload, rawBody) {
     order.fulfillmentStatus === "delivered" && status.notificationType !== "delivered";
   let notificationSent = false;
   if (status.notificationType && !staleNotification) {
-    const notificationStore = storeFor(
-      strapi,
-      `notification:${order.documentId}:${status.notificationType}`,
-    );
+    const notificationKey = `notification:${order.documentId}:${status.notificationType}`;
+    if (ordersNotifying.has(notificationKey)) {
+      await eventStore.set({
+        value: { processedAt: new Date().toISOString(), order: order.reference },
+      });
+      return { order: order.reference, fulfillmentStatus: nextFulfillmentStatus, notificationSent: false };
+    }
+
+    const notificationStore = storeFor(strapi, notificationKey);
     const alreadySent =
       (status.notificationType === "shipped" && order.trackingEmailSentAt) ||
       (await notificationStore.get());
 
     if (!alreadySent) {
-      notificationSent = await sendOrderNotification(
-        strapi,
-        { ...order, ...updatedOrder, ...tracking },
-        status.notificationType,
-      );
-      if (!notificationSent) {
-        throw new Error("La notification client n'a pas pu être envoyée.");
+      ordersNotifying.add(notificationKey);
+      try {
+        notificationSent = await sendOrderNotification(
+          strapi,
+          {
+            ...order,
+            ...updatedOrder,
+            ...tracking,
+            ...parcelDetails(payload.parcel),
+          },
+          status.notificationType,
+        );
+        if (!notificationSent) {
+          throw new Error("La notification client n'a pas pu être envoyée.");
+        }
+        await notificationStore.set({
+          value: { sentAt: new Date().toISOString() },
+        });
+        if (status.notificationType === "shipped" && !order.trackingEmailSentAt) {
+          await strapi.documents("api::order.order").update({
+            documentId: order.documentId,
+            data: { trackingEmailSentAt: new Date().toISOString() },
+          });
+        }
+      } finally {
+        ordersNotifying.delete(notificationKey);
       }
-      await notificationStore.set({
-        value: { sentAt: new Date().toISOString() },
-      });
-    }
-
-    if (
-      status.notificationType === "shipped" &&
-      (notificationSent || alreadySent) &&
-      !order.trackingEmailSentAt
-    ) {
-      await strapi.documents("api::order.order").update({
-        documentId: order.documentId,
-        data: { trackingEmailSentAt: new Date().toISOString() },
-      });
     }
   }
 
@@ -272,6 +312,8 @@ async function processSendcloudWebhook(strapi, payload, rawBody) {
 module.exports = {
   classifyParcelStatus,
   forwardStatus,
+  parcelDetails,
   processSendcloudWebhook,
+  resolveNotificationType,
   verifySendcloudSignature,
 };

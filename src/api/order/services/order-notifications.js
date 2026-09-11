@@ -37,14 +37,14 @@ function buildOrderNotification(order, type) {
   const carrier = order.carrier ? ` avec ${escapeHtml(order.carrier)}` : "";
   const trackingNumber = order.trackingNumber
     ? `<p style="margin:18px 0;padding:18px;background:#fdf7f2"><strong>Numéro de suivi :</strong><br>${escapeHtml(order.trackingNumber)}</p>`
-    : "";
+    : `<p style="margin:18px 0;padding:18px;background:#fdf7f2">Cette expédition n’a pas de suivi transporteur. Conservez votre numéro de commande <strong>${reference}</strong>.</p>`;
   const pickupPoint = escapeHtml(order.pickupPoint || "votre point relais");
 
   const notifications = {
     shipped: {
       subject: `Votre commande ${order.reference} est expédiée — Maison JLA`,
       title: "Votre commande est en route",
-      text: `Bonjour ${order.firstName}, votre commande ${order.reference} a été confiée au transporteur${order.carrier ? ` avec ${order.carrier}` : ""}.${order.trackingNumber ? ` Numéro de suivi : ${order.trackingNumber}.` : ""}${safeUrl(order.trackingUrl) ? ` Suivre le colis : ${safeUrl(order.trackingUrl)}` : ""}`,
+      text: `Bonjour ${order.firstName}, votre commande ${order.reference} a été confiée au transporteur${order.carrier ? ` avec ${order.carrier}` : ""}.${order.trackingNumber ? ` Numéro de suivi : ${order.trackingNumber}.` : " Cette expédition n’a pas de suivi transporteur."}${safeUrl(order.trackingUrl) ? ` Suivre le colis : ${safeUrl(order.trackingUrl)}` : ""}`,
       content: `<p>Votre commande <strong>${reference}</strong> a été confiée au transporteur${carrier}.</p>${trackingNumber}`,
     },
     pickup: {

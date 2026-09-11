@@ -64,20 +64,42 @@ function classifyParcelStatus(status = {}) {
     return { fulfillmentStatus: "shipped", notificationType: "delayed" };
   }
   if (
-    /unable to deliver|address invalid|not accessible|no one home|exception|refused by recipient|echec de livraison/.test(
+    /unable to deliver|address invalid|not accessible|no one home|exception|refused by recipient|echec de livraison|announced:? not collected/.test(
       label,
     )
   ) {
     return { fulfillmentStatus: "shipped", notificationType: "issue" };
   }
   if (
+    id === 3 ||
+    id === 5 ||
+    id === 7 ||
+    id === 22 ||
+    id === 91 ||
+    id === 92 ||
     /shipment picked up|shipment on route|parcel en route|en route|in transit|sorting cent(re|er)|sorted|on its way|expedie/.test(
       label,
     )
   ) {
     return { fulfillmentStatus: "shipped", notificationType: "shipped" };
   }
-  if (/ready to send|announced|no label|preparation/.test(label)) {
+  // Creating a label (Ready to send / Announced) is when the customer should
+  // receive tracking. Unstamped letters often never get a later transit scan.
+  if (
+    id === 1 ||
+    id === 1000 ||
+    id === 1002 ||
+    /ready to send|announced at carrier|label (created|printed)|etiquette/.test(
+      label,
+    ) ||
+    /(^| )announced( |$)/.test(label)
+  ) {
+    return { fulfillmentStatus: "shipped", notificationType: "shipped" };
+  }
+  if (
+    id === 1001 ||
+    /no label|preparation|being announced|ready to process/.test(label)
+  ) {
     return { fulfillmentStatus: "processing", notificationType: null };
   }
   return { fulfillmentStatus: null, notificationType: null };
@@ -159,6 +181,14 @@ async function processSendcloudWebhook(strapi, payload, rawBody) {
   }
 
   const status = classifyParcelStatus(payload.parcel.status);
+  const trackingPreview = parcelTracking(payload.parcel);
+  const trackingJustAppeared =
+    Boolean(trackingPreview.trackingNumber) &&
+    trackingPreview.trackingNumber !== order.trackingNumber;
+  if (trackingJustAppeared && !status.notificationType) {
+    status.fulfillmentStatus = status.fulfillmentStatus || "shipped";
+    status.notificationType = "shipped";
+  }
   const nextFulfillmentStatus = forwardStatus(
     order.fulfillmentStatus,
     status.fulfillmentStatus,

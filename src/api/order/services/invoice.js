@@ -10,7 +10,7 @@ const SELLER = {
   address: "5 Rue Joliot-Curie 80200 Doingt",
   siren: "109 541 771",
   siret: "109 541 771 00019",
-  email: "maisonjla@outlook.com",
+  email: "contact@maisonjla.fr",
   phone: "06 77 88 69 09",
   tva: "TVA non applicable, art. 293 B du CGI",
 };

@@ -39,7 +39,7 @@
     "manufacturerEmail": {
       "type": "email",
       "required": true,
-      "default": "maisonjla@outlook.com"
+      "default": "contact@maisonjla.fr"
     },
     "safetyWarnings": {
       "type": "text",

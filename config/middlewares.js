@@ -1,9 +1,10 @@
-const corsOrigins = (process.env.CORS_ORIGINS || [
+const defaultOrigins = [
   "https://maisonjla.lafabriqueducode.fr",
   "https://maisonjla.fr",
   "https://www.maisonjla.fr",
-  "http://localhost:3000",
-].join(","))
+  ...(process.env.NODE_ENV === "production" ? [] : ["http://localhost:3000"]),
+];
+const corsOrigins = (process.env.CORS_ORIGINS || defaultOrigins.join(","))
   .split(",")
   .map((origin) => origin.trim())
   .filter(Boolean);

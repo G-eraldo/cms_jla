@@ -1,6 +1,15 @@
 "use strict";
 
 const RESERVATION_MINUTES = 30;
+const ORDER_REFERENCE_PATTERN = /^JLA-\d{8}-[A-F0-9]{8,32}$/;
+const PAYMENT_VIEW_FIELDS = [
+  "reference",
+  "molliePaymentId",
+  "paymentStatus",
+  "confirmationEmailSentAt",
+  "refundStatus",
+  "checkoutKey",
+];
 const { termsHash, termsSnapshot, TERMS_VERSION } = require("./terms");
 const {
   PromoCodeError,
@@ -30,6 +39,68 @@ const activeReservation = (order) =>
 function shippingAmountFor(method, subtotalAmount) {
   if (subtotalAmount >= 60) return 0;
   return method === "pickup" ? 3.9 : 7.9;
+}
+
+async function loadProductStockRows(strapi, trx, productDocumentId) {
+  return strapi.db
+    .getConnection("products")
+    .transacting(trx)
+    .where({ document_id: productDocumentId })
+    .forUpdate()
+    .select("id", "stock", "published_at");
+}
+
+async function adjustPublishedStock(strapi, trx, productDocumentId, delta) {
+  const productRows = await loadProductStockRows(
+    strapi,
+    trx,
+    productDocumentId,
+  );
+  const publishedRows = productRows.filter((row) => row.published_at);
+  if (!publishedRows.length) {
+    throw new ReservationError(
+      "Le stock d’un bijou vient d’être mis à jour. Veuillez actualiser votre panier.",
+      409,
+    );
+  }
+
+  if (delta < 0) {
+    const quantity = Math.abs(delta);
+    if (publishedRows.some((row) => Number(row.stock) < quantity)) {
+      throw new ReservationError(
+        "Le stock d’un bijou vient d’être mis à jour. Veuillez actualiser votre panier.",
+        409,
+      );
+    }
+  }
+
+  const publishedIds = publishedRows.map((row) => row.id);
+  const query = strapi.db
+    .getConnection("products")
+    .transacting(trx)
+    .whereIn("id", publishedIds);
+  const changed =
+    delta >= 0
+      ? await query.increment("stock", delta)
+      : await query.decrement("stock", Math.abs(delta));
+  if (changed !== publishedRows.length) {
+    throw new ReservationError(
+      "Le stock d’un bijou vient d’être mis à jour. Veuillez actualiser votre panier.",
+      409,
+    );
+  }
+
+  const nextStock = Number(publishedRows[0].stock) + delta;
+  const draftIds = productRows
+    .filter((row) => !row.published_at)
+    .map((row) => row.id);
+  if (draftIds.length) {
+    await strapi.db
+      .getConnection("products")
+      .transacting(trx)
+      .whereIn("id", draftIds)
+      .update({ stock: Math.max(0, nextStock) });
+  }
 }
 
 function normalizedLines(lines) {
@@ -93,13 +164,14 @@ function normalizedPayload(payload) {
     );
   }
 
-  const reference = value(payload?.reference, 40);
-  if (!/^JLA-\d{8}-[A-F0-9]{8}$/.test(reference)) {
+  const reference = value(payload?.reference, 48);
+  if (!ORDER_REFERENCE_PATTERN.test(reference)) {
     throw new ReservationError("Référence de commande invalide.");
   }
 
   return {
     reference,
+    checkoutKey: value(payload?.checkoutKey, 64) || null,
     customer: {
       firstName: value(customer.firstName, 100),
       lastName: value(customer.lastName, 100),
@@ -134,6 +206,7 @@ async function getOrder(strapi, documentId) {
       "stockReservationReleasedAt",
       "stockDecrementedAt",
       "refundStatus",
+      "checkoutKey",
     ],
     populate: { items: { fields: ["productDocumentId", "quantity"] } },
   });
@@ -155,11 +228,12 @@ async function releaseReservation(strapi, documentId) {
     if (claimed !== 1) return false;
 
     for (const item of normalizedLines(order.items)) {
-      await strapi.db
-        .getConnection("products")
-        .transacting(trx)
-        .where({ document_id: item.productDocumentId })
-        .increment("stock", item.quantity);
+      await adjustPublishedStock(
+        strapi,
+        trx,
+        item.productDocumentId,
+        item.quantity,
+      );
     }
     return true;
   });
@@ -179,9 +253,39 @@ async function releaseExpiredReservations(strapi) {
   }
 }
 
+async function findReusableReservation(strapi, checkoutKey) {
+  if (!checkoutKey) return null;
+  const existing = await strapi.documents("api::order.order").findMany({
+    filters: { checkoutKey },
+    fields: [
+      "reference",
+      "paymentStatus",
+      "molliePaymentId",
+      "stockReservedAt",
+      "stockReservationExpiresAt",
+      "stockReservationReleasedAt",
+      "stockDecrementedAt",
+      "totalAmount",
+      "checkoutKey",
+    ],
+    limit: 1,
+  });
+  const order = existing[0];
+  if (!order) return null;
+  if (activeReservation(order) && order.paymentStatus === "pending")
+    return order;
+  await strapi.documents("api::order.order").update({
+    documentId: order.documentId,
+    data: { checkoutKey: null },
+  });
+  return null;
+}
+
 async function reserveOrder(strapi, payload) {
   const input = normalizedPayload(payload);
   await releaseExpiredReservations(strapi);
+  const reusable = await findReusableReservation(strapi, input.checkoutKey);
+  if (reusable) return reusable;
 
   const products = await strapi.documents("api::product.product").findMany({
     fields: ["name", "price", "stock"],
@@ -242,52 +346,21 @@ async function reserveOrder(strapi, payload) {
   try {
     return await strapi.db.transaction(async ({ trx }) => {
       for (const item of items) {
-        // Verrouille toutes les lignes Strapi correspondant au produit.
-        // Avec Draft & Publish, un même documentId peut correspondre
-        // à plusieurs lignes (draft + published).
-        const productRows = await strapi.db
-          .getConnection("products")
-          .transacting(trx)
-          .where({ document_id: item.productDocumentId })
-          .forUpdate()
-          .select("id", "stock");
-
-        // Le produit doit toujours exister.
-        if (!productRows.length) {
-          throw new ReservationError(
-            `Le stock de « ${item.productName} » vient d’être mis à jour. Veuillez actualiser votre panier.`,
-            409,
+        try {
+          await adjustPublishedStock(
+            strapi,
+            trx,
+            item.productDocumentId,
+            -item.quantity,
           );
-        }
-
-        // Toutes les versions du produit doivent avoir suffisamment de stock.
-        const insufficientStock = productRows.some(
-          (row) => Number(row.stock) < item.quantity,
-        );
-
-        if (insufficientStock) {
-          throw new ReservationError(
-            `Le stock de « ${item.productName} » vient d’être mis à jour. Veuillez actualiser votre panier.`,
-            409,
-          );
-        }
-
-        // Les lignes sont verrouillées : personne d'autre ne peut modifier
-        // leur stock avant la fin de cette transaction.
-        const productRowIds = productRows.map((row) => row.id);
-
-        const decremented = await strapi.db
-          .getConnection("products")
-          .transacting(trx)
-          .whereIn("id", productRowIds)
-          .decrement("stock", item.quantity);
-
-        // On vérifie que toutes les lignes verrouillées ont bien été mises à jour.
-        if (decremented !== productRows.length) {
-          throw new ReservationError(
-            `Le stock de « ${item.productName} » vient d’être mis à jour. Veuillez actualiser votre panier.`,
-            409,
-          );
+        } catch (error) {
+          if (error instanceof ReservationError) {
+            throw new ReservationError(
+              `Le stock de « ${item.productName} » vient d’être mis à jour. Veuillez actualiser votre panier.`,
+              409,
+            );
+          }
+          throw error;
         }
       }
 
@@ -315,6 +388,7 @@ async function reserveOrder(strapi, payload) {
           refundStatus: "not_required",
           // Server-side proof: the client only signals acceptance; this immutable
           // snapshot identifies exactly what was accepted at this instant.
+          checkoutKey: input.checkoutKey,
           termsVersion: TERMS_VERSION,
           termsHash: termsHash(),
           termsSnapshot: termsSnapshot(),
@@ -345,6 +419,46 @@ async function attachMolliePayment(strapi, documentId, molliePaymentId) {
   });
 }
 
+async function verifyMolliePaid(order) {
+  const apiKey = process.env.MOLLIE_API_KEY;
+  if (!apiKey) {
+    if (process.env.NODE_ENV === "production") {
+      throw new ReservationError("Le paiement n’a pas pu être vérifié.", 503);
+    }
+    return null;
+  }
+  if (!order.molliePaymentId) {
+    throw new ReservationError(
+      "Le paiement n’est pas rattaché à la commande.",
+      409,
+    );
+  }
+
+  const response = await fetch(
+    `https://api.mollie.com/v2/payments/${encodeURIComponent(order.molliePaymentId)}`,
+    {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(8000),
+    },
+  );
+  if (!response.ok) {
+    throw new ReservationError("Le paiement n’a pas pu être vérifié.", 502);
+  }
+  const payment = await response.json();
+  if (payment.status !== "paid") {
+    throw new ReservationError("Le paiement n’est pas encaissé.", 409);
+  }
+  const metadataDocumentId =
+    payment.metadata?.orderDocumentId || payment.metadata?.order_document_id;
+  if (metadataDocumentId && metadataDocumentId !== order.documentId) {
+    throw new ReservationError(
+      "Le paiement ne correspond pas à cette commande.",
+      409,
+    );
+  }
+  return payment;
+}
+
 async function confirmPaidReservation(strapi, documentId, paidAt) {
   const order = await getOrder(strapi, documentId);
   if (!order) throw new ReservationError("Commande introuvable.", 404);
@@ -352,46 +466,112 @@ async function confirmPaidReservation(strapi, documentId, paidAt) {
     return { refundRequired: order.refundStatus !== "not_required" };
   }
 
-  const paidAtIso = new Date(paidAt || Date.now()).toISOString();
-  const expiredBeforePayment =
-    !order.stockReservationExpiresAt ||
-    paidAtIso > order.stockReservationExpiresAt;
-  if (!activeReservation(order) || expiredBeforePayment) {
-    await releaseReservation(strapi, documentId);
-    await strapi.documents("api::order.order").update({
-      documentId,
-      data: {
-        paymentStatus: "paid",
-        paidAt: paidAtIso,
-        fulfillmentStatus: "canceled",
-        refundStatus: "pending",
-      },
-    });
-    return { refundRequired: true };
-  }
-
+  const payment = await verifyMolliePaid(order);
+  const paidAtIso = new Date(
+    payment?.paidAt || paidAt || Date.now(),
+  ).toISOString();
   const confirmedAt = nowIso();
+
   const claimed = await strapi.db.transaction(async ({ trx }) =>
     strapi.db
       .getConnection("orders")
       .transacting(trx)
-      .where({ document_id: documentId })
+      .where({ document_id: documentId, payment_status: "pending" })
       .whereNull("stock_reservation_released_at")
       .whereNull("stock_decremented_at")
-      .update({ stock_decremented_at: confirmedAt }),
+      .where("stock_reservation_expires_at", ">=", paidAtIso)
+      .update({
+        stock_decremented_at: confirmedAt,
+        payment_status: "paid",
+        paid_at: paidAtIso,
+      }),
   );
-  if (claimed !== 1)
-    return confirmPaidReservation(strapi, documentId, paidAtIso);
 
+  if (claimed === 1) return { refundRequired: false };
+
+  const latest = await getOrder(strapi, documentId);
+  if (latest?.paymentStatus === "paid") {
+    return { refundRequired: latest.refundStatus !== "not_required" };
+  }
+
+  await releaseReservation(strapi, documentId);
   await strapi.documents("api::order.order").update({
     documentId,
     data: {
       paymentStatus: "paid",
       paidAt: paidAtIso,
-      stockDecrementedAt: confirmedAt,
+      fulfillmentStatus: "canceled",
+      refundStatus: "pending",
     },
   });
-  return { refundRequired: false };
+  return { refundRequired: true };
+}
+
+async function recordPaymentOutcome(strapi, documentId, paymentStatus) {
+  if (!TERMINAL_PAYMENT_STATUSES.has(paymentStatus)) {
+    throw new ReservationError("Statut de paiement invalide.", 400);
+  }
+  const order = await getOrder(strapi, documentId);
+  if (!order) throw new ReservationError("Commande introuvable.", 404);
+  if (order.paymentStatus === "paid") {
+    throw new ReservationError("Cette commande est déjà payée.", 409);
+  }
+  if (order.paymentStatus === paymentStatus) return false;
+  await strapi.documents("api::order.order").update({
+    documentId,
+    data: { paymentStatus },
+  });
+  return true;
+}
+
+async function findPaymentView(strapi, filters) {
+  if (filters.documentId) {
+    return strapi.documents("api::order.order").findOne({
+      documentId: filters.documentId,
+      fields: PAYMENT_VIEW_FIELDS,
+    });
+  }
+
+  const [order] = await strapi.documents("api::order.order").findMany({
+    filters: filters.reference
+      ? { reference: filters.reference }
+      : { molliePaymentId: filters.molliePaymentId },
+    fields: PAYMENT_VIEW_FIELDS,
+    limit: 1,
+  });
+  return order || null;
+}
+
+async function anonymizeAbandonedOrders(strapi) {
+  const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const abandoned = await strapi.documents("api::order.order").findMany({
+    filters: {
+      paymentStatus: { $in: ["pending", "failed", "canceled", "expired"] },
+      createdAt: { $lt: cutoff },
+    },
+    fields: ["email", "paymentStatus"],
+    limit: 50,
+  });
+
+  let anonymized = 0;
+  for (const order of abandoned) {
+    if (String(order.email || "").endsWith("@invalid.invalid")) continue;
+    await releaseReservation(strapi, order.documentId);
+    await strapi.documents("api::order.order").update({
+      documentId: order.documentId,
+      data: {
+        firstName: "Anonymisé",
+        lastName: "Anonymisé",
+        email: `anonymized-${order.documentId}@invalid.invalid`,
+        phone: "0000000000",
+        addressLine1: "Anonymisé",
+        addressLine2: null,
+        pickupPoint: null,
+      },
+    });
+    anonymized += 1;
+  }
+  return anonymized;
 }
 
 async function recordRefund(strapi, documentId, refund) {
@@ -420,8 +600,11 @@ async function recordRefundFailure(strapi, documentId) {
 module.exports = {
   ReservationError,
   TERMINAL_PAYMENT_STATUSES,
+  anonymizeAbandonedOrders,
   attachMolliePayment,
   confirmPaidReservation,
+  findPaymentView,
+  recordPaymentOutcome,
   recordRefund,
   recordRefundFailure,
   releaseExpiredReservations,

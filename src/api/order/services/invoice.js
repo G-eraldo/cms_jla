@@ -30,6 +30,7 @@ const invoiceNumber = (order) => order.invoiceNumber || `PROV-${order.reference}
 
 const invoiceSnapshot = (order) => ({
   number: invoiceNumber(order),
+  reference: order.reference,
   issuedAt: order.invoiceIssuedAt || order.paidAt,
   saleDate: order.paidAt,
   seller: SELLER,
@@ -104,13 +105,26 @@ const writeLine = (document, label, value, y) => {
 };
 
 function createInvoicePdf(order) {
+  const snapshot = order.invoiceSnapshot?.number
+    ? order.invoiceSnapshot
+    : invoiceSnapshot(order);
+  const seller = snapshot.seller || SELLER;
+  const customer = snapshot.customer || {};
+  const issuedAt = snapshot.issuedAt || order.invoiceIssuedAt || order.paidAt;
+  const saleDate = snapshot.saleDate || order.paidAt;
+  const pdfDate = issuedAt ? new Date(issuedAt) : new Date(0);
+
   return new Promise((resolve, reject) => {
     const document = new PDFDocument({
       size: "A4",
       margin: 50,
       info: {
-        Title: `Facture ${invoiceNumber(order)}`,
-        Author: SELLER.brand,
+        Title: `Facture ${snapshot.number}`,
+        Author: seller.brand || SELLER.brand,
+        Creator: "Maison JLA",
+        Producer: "Maison JLA",
+        CreationDate: pdfDate,
+        ModDate: pdfDate,
       },
     });
     const chunks = [];
@@ -127,9 +141,9 @@ function createInvoicePdf(order) {
     document
       .fontSize(11)
       .font("Helvetica")
-      .text(`N° ${invoiceNumber(order)}`, { align: "right" });
-    document.text(`Émise le ${formatDate(order.invoiceIssuedAt || order.paidAt)}`, { align: "right" });
-    document.text(`Vente réglée le ${formatDate(order.paidAt)}`, { align: "right" });
+      .text(`N° ${snapshot.number}`, { align: "right" });
+    document.text(`Émise le ${formatDate(issuedAt)}`, { align: "right" });
+    document.text(`Vente réglée le ${formatDate(saleDate)}`, { align: "right" });
     document.moveDown(2);
 
     document.font("Helvetica-Bold").fontSize(11).text("Vendeur");
@@ -137,7 +151,7 @@ function createInvoicePdf(order) {
       .font("Helvetica")
       .fontSize(10)
       .text(
-        `${SELLER.brand}\n${SELLER.name} — ${SELLER.status}\n${SELLER.address}\nSIREN : ${SELLER.siren}\nSIRET : ${SELLER.siret}\n${SELLER.email} — ${SELLER.phone}\nTVA non applicable, art. 293 B du CGI`,
+        `${seller.brand}\n${seller.name} — ${seller.status}\n${seller.address}\nSIREN : ${seller.siren}\nSIRET : ${seller.siret}\n${seller.email} — ${seller.phone}\nTVA non applicable, art. 293 B du CGI`,
         { width: 245 },
       );
     const sellerBottom = document.y;
@@ -147,7 +161,7 @@ function createInvoicePdf(order) {
       .font("Helvetica")
       .fontSize(10)
       .text(
-        `${order.firstName} ${order.lastName}\n${order.addressLine1}${order.addressLine2 ? `\n${order.addressLine2}` : ""}\n${order.postalCode} ${order.city}\n${order.country}`,
+        `${customer.firstName} ${customer.lastName}\n${customer.addressLine1}${customer.addressLine2 ? `\n${customer.addressLine2}` : ""}\n${customer.postalCode} ${customer.city}\n${customer.country}`,
         330,
         148,
         { width: 210 },
@@ -167,7 +181,7 @@ function createInvoicePdf(order) {
 
     let y = tableTop + 38;
     document.font("Helvetica").fontSize(10);
-    for (const item of order.items) {
+    for (const item of snapshot.items || []) {
       const lineTotal = Number(item.unitPrice) * Number(item.quantity);
       document.text(item.productName, 60, y, { width: 250 });
       document.text(String(item.quantity), 325, y, {
@@ -185,9 +199,9 @@ function createInvoicePdf(order) {
       y += 24;
     }
 
-    if (Number(order.discountAmount) > 0) {
-      document.text(`Remise — code ${order.promoCode}`, 60, y, { width: 250 });
-      document.text(`− ${formatAmount(order.discountAmount)}`, 465, y, {
+    if (Number(snapshot.discountAmount) > 0) {
+      document.text(`Remise — code ${snapshot.promoCode}`, 60, y, { width: 250 });
+      document.text(`− ${formatAmount(snapshot.discountAmount)}`, 465, y, {
         width: 70,
         align: "right",
       });
@@ -195,7 +209,7 @@ function createInvoicePdf(order) {
     }
 
     document.text("Livraison (HT = TTC)", 60, y, { width: 250 });
-    document.text(formatAmount(order.shippingAmount), 465, y, {
+    document.text(formatAmount(snapshot.shippingAmount), 465, y, {
       width: 70,
       align: "right",
     });
@@ -204,7 +218,7 @@ function createInvoicePdf(order) {
     y += 12;
     document.font("Helvetica-Bold").fontSize(12);
     document.text("Total HT = TTC", 330, y, { width: 125 });
-    document.text(formatAmount(order.totalAmount), 465, y, {
+    document.text(formatAmount(snapshot.totalAmount), 465, y, {
       width: 70,
       align: "right",
     });
@@ -212,7 +226,7 @@ function createInvoicePdf(order) {
 
     document.font("Helvetica").fontSize(9).fillColor("#776b64");
     document.text(
-      `Commande ${order.reference} réglée le ${formatDate(order.paidAt)}. TVA non applicable, art. 293 B du CGI.`,
+      `Commande ${snapshot.reference || order.reference} réglée le ${formatDate(saleDate)}. TVA non applicable, art. 293 B du CGI.`,
       50,
       y,
       { width: 495 },

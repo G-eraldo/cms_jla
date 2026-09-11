@@ -7,7 +7,8 @@ Ce registre est un modèle de travail interne. Il ne remplace ni le registre RGP
 - Obtenir et archiver l'extrait officiel RNE/SIRENE ou Kbis : SIREN, SIRET, forme, RCS et ville du greffe. Mettre à jour les mentions légales, CGV, factures et e-mails uniquement à partir de ce justificatif.
 - Hébergement confirmé : le frontend, Strapi et la base sont exploités sur le VPS IONOS de l’éditrice. Conserver le contrat IONOS ainsi que les contrats de sous-traitance, régions de traitement, sous-traitants ultérieurs et mécanismes de transfert hors EEE de Mollie, Resend, Sendcloud, Cloudinary et ntfy.
 - Convention CM2C signée : conserver l'attestation d'adhésion avec les pièces de conformité.
-- Créer un jeton Strapi limité au serveur Nuxt : création/lecture/mise à jour des seules commandes, rétractations et produits nécessaires. Il ne doit pas être un jeton « Full Access » et doit être expirant.
+- Créer un jeton Strapi limité au serveur Nuxt : réservation, confirmation, lecture restreinte des commandes, rétractations et validation des codes promo. Il ne doit pas être un jeton « Full Access » et doit être expirant.
+- Renseigner `MOLLIE_API_KEY` aussi dans Strapi : la confirmation d'une commande payée vérifie le paiement chez Mollie avant de figer le stock.
 
 ## Dossier de conformité par référence ou lot de bijou
 

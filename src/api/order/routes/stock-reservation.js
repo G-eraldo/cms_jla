@@ -38,5 +38,29 @@ module.exports = {
       handler: "order.recordRefundFailure",
       config: { policies: [], middlewares: [] },
     },
+    {
+      method: "POST",
+      path: "/orders/:documentId/record-payment-outcome",
+      handler: "order.recordPaymentOutcome",
+      config: { policies: [], middlewares: [] },
+    },
+    {
+      method: "GET",
+      path: "/orders/by-reference/:reference",
+      handler: "order.findByReference",
+      config: { policies: [], middlewares: [] },
+    },
+    {
+      method: "GET",
+      path: "/orders/by-payment/:paymentId",
+      handler: "order.findByPaymentId",
+      config: { policies: [], middlewares: [] },
+    },
+    {
+      method: "GET",
+      path: "/orders/payment-view/:documentId",
+      handler: "order.findPaymentView",
+      config: { policies: [], middlewares: [] },
+    },
   ],
 };

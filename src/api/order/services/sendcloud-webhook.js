@@ -153,7 +153,7 @@ async function processSendcloudWebhook(strapi, payload, rawBody) {
   }
 
   const receivedAt = eventDate(payload);
-  if (order.lastCarrierEventAt && receivedAt <= order.lastCarrierEventAt) {
+  if (order.lastCarrierEventAt && receivedAt < order.lastCarrierEventAt) {
     await eventStore.set({ value: { processedAt: new Date().toISOString(), order: order.reference } });
     return { ignored: true, reason: "stale_event" };
   }
@@ -202,6 +202,9 @@ async function processSendcloudWebhook(strapi, payload, rawBody) {
         { ...order, ...updatedOrder, ...tracking },
         status.notificationType,
       );
+      if (!notificationSent) {
+        throw new Error("La notification client n'a pas pu être envoyée.");
+      }
       await notificationStore.set({
         value: { sentAt: new Date().toISOString() },
       });

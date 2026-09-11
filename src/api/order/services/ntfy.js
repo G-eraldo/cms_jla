@@ -43,14 +43,18 @@ async function notifyOrderPaid(order, options = {}) {
 
   const notification = notificationForOrder(order);
   const fetchImpl = options.fetchImpl || fetch;
+  const headers = {
+    "Content-Type": "text/plain; charset=utf-8",
+    Title: notification.title,
+    Priority: "default",
+    Tags: "shopping_cart",
+  };
+  if (process.env.NTFY_TOKEN) {
+    headers.Authorization = `Bearer ${process.env.NTFY_TOKEN}`;
+  }
   const response = await fetchImpl(ntfyTopicUrl(options.topicUrl || process.env.NTFY_TOPIC_URL), {
     method: "POST",
-    headers: {
-      "Content-Type": "text/plain; charset=utf-8",
-      Title: notification.title,
-      Priority: "default",
-      Tags: "shopping_cart",
-    },
+    headers,
     body: notification.message,
     signal: options.signal || AbortSignal.timeout(5000),
   });

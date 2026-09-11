@@ -131,9 +131,8 @@ async function syncOrderToSendcloud(order, options = {}) {
       return importedOrder;
     }
 
-    const details = JSON.stringify(body || {}).slice(0, 500);
     lastError = new Error(
-      `Sendcloud a refusé la commande (${response.status}) : ${details}`,
+      `Sendcloud a refusé la commande (${response.status}).`,
     );
     const transientFailure = response.status === 429 || response.status >= 500;
     if (!transientFailure || attempt === maxAttempts) throw lastError;

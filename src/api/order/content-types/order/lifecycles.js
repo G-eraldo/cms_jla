@@ -65,6 +65,7 @@ async function getOrder(strapi, documentId) {
       "stockDecrementedAt",
       "confirmationEmailSentAt",
       "ntfyNotificationSentAt",
+      "sendcloudImportedAt",
     ],
     populate: {
       items: {
@@ -218,9 +219,13 @@ module.exports = {
       }
     }
 
-    if (paymentConfirmed) {
+    if (paymentConfirmed && !order.sendcloudImportedAt) {
       try {
         const importedOrder = await syncOrderToSendcloud(order);
+        await strapi.documents("api::order.order").update({
+          documentId,
+          data: { sendcloudImportedAt: new Date().toISOString() },
+        });
         strapi.log.info(
           `Commande ${order.reference} importée dans Sendcloud (${importedOrder.id})`,
         );

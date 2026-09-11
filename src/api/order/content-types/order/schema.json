@@ -11,6 +11,12 @@
   "pluginOptions": {},
   "attributes": {
     "reference": { "type": "string", "required": true, "unique": true },
+    "checkoutKey": {
+      "type": "string",
+      "unique": true,
+      "private": true,
+      "maxLength": 64
+    },
     "firstName": { "type": "string", "required": true },
     "lastName": { "type": "string", "required": true },
     "email": { "type": "email", "required": true },
@@ -20,21 +26,51 @@
     "postalCode": { "type": "string", "required": true },
     "city": { "type": "string", "required": true },
     "country": { "type": "string", "required": true, "default": "France" },
-    "deliveryMethod": { "type": "enumeration", "enum": ["home", "pickup"], "required": true },
+    "deliveryMethod": {
+      "type": "enumeration",
+      "enum": ["home", "pickup"],
+      "required": true
+    },
     "pickupPoint": { "type": "string" },
     "pickupPointId": { "type": "string" },
-    "items": { "type": "component", "component": "commerce.order-line", "repeatable": true, "required": true, "min": 1 },
+    "items": {
+      "type": "component",
+      "component": "commerce.order-line",
+      "repeatable": true,
+      "required": true,
+      "min": 1
+    },
     "subtotalAmount": { "type": "decimal", "required": true, "min": 0 },
     "promoCode": { "type": "string", "maxLength": 40 },
     "promoKind": { "type": "enumeration", "enum": ["percentage", "fixed"] },
     "promoValue": { "type": "decimal", "min": 0 },
-    "discountAmount": { "type": "decimal", "required": true, "default": 0, "min": 0 },
-    "shippingAmount": { "type": "decimal", "required": true, "min": 0, "default": 0 },
+    "discountAmount": {
+      "type": "decimal",
+      "required": true,
+      "default": 0,
+      "min": 0
+    },
+    "shippingAmount": {
+      "type": "decimal",
+      "required": true,
+      "min": 0,
+      "default": 0
+    },
     "totalAmount": { "type": "decimal", "required": true, "min": 0 },
     "currency": { "type": "string", "required": true, "default": "EUR" },
     "molliePaymentId": { "type": "string", "unique": true },
-    "paymentStatus": { "type": "enumeration", "enum": ["pending", "paid", "failed", "canceled", "expired", "refunded"], "required": true, "default": "pending" },
-    "fulfillmentStatus": { "type": "enumeration", "enum": ["pending", "processing", "shipped", "delivered", "canceled"], "required": true, "default": "pending" },
+    "paymentStatus": {
+      "type": "enumeration",
+      "enum": ["pending", "paid", "failed", "canceled", "expired", "refunded"],
+      "required": true,
+      "default": "pending"
+    },
+    "fulfillmentStatus": {
+      "type": "enumeration",
+      "enum": ["pending", "processing", "shipped", "delivered", "canceled"],
+      "required": true,
+      "default": "pending"
+    },
     "trackingNumber": { "type": "string" },
     "carrier": { "type": "string" },
     "trackingUrl": { "type": "string" },
@@ -43,7 +79,12 @@
     "stockReservationExpiresAt": { "type": "datetime" },
     "stockReservationReleasedAt": { "type": "datetime" },
     "stockDecrementedAt": { "type": "datetime" },
-    "refundStatus": { "type": "enumeration", "enum": ["not_required", "pending", "processing", "refunded", "failed"], "required": true, "default": "not_required" },
+    "refundStatus": {
+      "type": "enumeration",
+      "enum": ["not_required", "pending", "processing", "refunded", "failed"],
+      "required": true,
+      "default": "not_required"
+    },
     "mollieRefundId": { "type": "string", "unique": true },
     "refundRequestedAt": { "type": "datetime" },
     "shippedAt": { "type": "datetime" },
@@ -55,12 +96,22 @@
     "termsHash": { "type": "string", "private": true, "maxLength": 64 },
     "termsAcceptedAt": { "type": "datetime", "private": true },
     "termsSnapshot": { "type": "json", "private": true },
-    "invoiceNumber": { "type": "string", "unique": true, "private": true, "maxLength": 40 },
+    "invoiceNumber": {
+      "type": "string",
+      "unique": true,
+      "private": true,
+      "maxLength": 40
+    },
     "invoiceIssuedAt": { "type": "datetime", "private": true },
     "invoiceSnapshot": { "type": "json", "private": true },
     "invoiceHash": { "type": "string", "private": true, "maxLength": 64 },
-    "invoiceArchiveKey": { "type": "string", "private": true, "maxLength": 255 },
+    "invoiceArchiveKey": {
+      "type": "string",
+      "private": true,
+      "maxLength": 255
+    },
     "invoiceArchivedAt": { "type": "datetime", "private": true },
-    "invoicePdfHash": { "type": "string", "private": true, "maxLength": 64 }
+    "invoicePdfHash": { "type": "string", "private": true, "maxLength": 64 },
+    "sendcloudImportedAt": { "type": "datetime", "private": true }
   }
 }

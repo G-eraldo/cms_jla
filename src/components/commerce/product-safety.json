@@ -27,7 +27,7 @@
     "manufacturerCompany": {
       "type": "string",
       "required": true,
-      "default": "Touret Julia",
+      "default": "Julia Touret",
       "maxLength": 150
     },
     "manufacturerPostalAddress": {

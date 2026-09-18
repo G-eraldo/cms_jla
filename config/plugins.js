@@ -1,19 +1,26 @@
-const allowedImageFormats = ["jpg", "jpeg", "png", "webp"];
-
 module.exports = ({ env }) => ({
   upload: {
     config: {
-      provider: "cloudinary",
+      provider: "aws-s3",
       providerOptions: {
-        CLOUDINARY_URL: env("CLOUDINARY_URL"),
+        // URLs stored by Strapi use the public R2 custom domain, never the S3 API endpoint.
+        baseUrl: env("CLOUDFLARE_R2_MEDIA_PUBLIC_URL"),
+        s3Options: {
+          region: "auto",
+          endpoint: env("CLOUDFLARE_R2_MEDIA_ENDPOINT"),
+          forcePathStyle: true,
+          credentials: {
+            accessKeyId: env("CLOUDFLARE_R2_MEDIA_ACCESS_KEY_ID"),
+            secretAccessKey: env("CLOUDFLARE_R2_MEDIA_SECRET_ACCESS_KEY"),
+          },
+          params: {
+            Bucket: env("CLOUDFLARE_R2_MEDIA_BUCKET"),
+            // R2 does not support S3 object ACLs; visibility is managed by the R2 domain.
+            ACL: undefined,
+          },
+        },
       },
-      actionOptions: {
-        // The media library is exclusively for product images. Cloudinary checks
-        // the uploaded asset and rejects SVG, documents, audio and executable types.
-        upload: { resource_type: "image", allowed_formats: allowedImageFormats },
-        uploadStream: { resource_type: "image", allowed_formats: allowedImageFormats },
-        delete: {},
-      },
+      actionOptions: { upload: {}, uploadStream: {}, delete: {} },
     },
   },
   email: {

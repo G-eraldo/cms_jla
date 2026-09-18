@@ -8,6 +8,7 @@ const corsOrigins = (process.env.CORS_ORIGINS || defaultOrigins.join(","))
   .split(",")
   .map((origin) => origin.trim())
   .filter(Boolean);
+const r2MediaPublicUrl = process.env.CLOUDFLARE_R2_MEDIA_PUBLIC_URL?.replace(/\/+$/, "");
 
 module.exports = [
   "strapi::logger",
@@ -24,14 +25,14 @@ module.exports = [
             "data:",
             "blob:",
             "market-assets.strapi.io",
-            "https://res.cloudinary.com",
+            ...(r2MediaPublicUrl ? [r2MediaPublicUrl] : []),
           ],
           "media-src": [
             "'self'",
             "data:",
             "blob:",
             "market-assets.strapi.io",
-            "https://res.cloudinary.com",
+            ...(r2MediaPublicUrl ? [r2MediaPublicUrl] : []),
           ],
           upgradeInsecureRequests: null,
         },

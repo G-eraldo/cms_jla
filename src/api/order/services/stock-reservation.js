@@ -416,6 +416,9 @@ const MOLLIE_REFUND_STATUSES = {
   processing: "processing",
 };
 
+/** Statuts Mollie qui prouvent qu'un remboursement a bien échoué. */
+const MOLLIE_FAILED_REFUND_STATUSES = new Set(["failed", "canceled"]);
+
 const mollieOrderDocumentId = (payment) =>
   payment?.metadata?.orderDocumentId ||
   payment?.metadata?.order_document_id ||
@@ -479,20 +482,13 @@ async function attachMolliePayment(strapi, documentId, molliePaymentId) {
     const payment = await mollieRequest(
       `payments/${encodeURIComponent(paymentId)}`,
     );
-    const metadataDocumentId = payment
-      ? mollieOrderDocumentId(payment)
-      : null;
-    if (metadataDocumentId && metadataDocumentId !== order.documentId) {
+    if (!payment) {
       throw new ReservationError(
-        "Le paiement ne correspond pas à cette commande.",
+        "Le paiement est introuvable chez Mollie.",
         409,
       );
     }
-    if (!payment) {
-      strapi.log?.warn?.(
-        `Paiement Mollie ${paymentId} introuvable au rattachement de la commande ${order.reference}.`,
-      );
-    }
+    assertPaymentMatchesOrder(payment, order);
   }
 
   await strapi.documents("api::order.order").update({
@@ -615,13 +611,7 @@ async function recordPaymentOutcome(strapi, documentId, paymentStatus) {
         409,
       );
     }
-    const metadataDocumentId = mollieOrderDocumentId(payment);
-    if (metadataDocumentId && metadataDocumentId !== order.documentId) {
-      throw new ReservationError(
-        "Le paiement ne correspond pas à cette commande.",
-        409,
-      );
-    }
+    assertPaymentMatchesOrder(payment, order);
     if (payment.status !== paymentStatus) {
       throw new ReservationError(
         "Le statut annoncé ne correspond pas au statut réel du paiement.",
@@ -737,10 +727,64 @@ async function recordRefund(strapi, documentId, refund) {
     },
   });
 }
-async function recordRefundFailure(strapi, documentId) {
-  await strapi
-    .documents("api::order.order")
-    .update({ documentId, data: { refundStatus: "failed" } });
+/** Liste les remboursements d'un paiement chez Mollie. */
+async function mollieRefundsForPayment(paymentId) {
+  const payload = await mollieRequest(
+    `payments/${encodeURIComponent(paymentId)}/refunds`,
+  );
+  const refunds = payload?._embedded?.refunds;
+  return Array.isArray(refunds) ? refunds : [];
+}
+
+/**
+ * Enregistre l'échec d'un remboursement. Comme `recordRefund`, l'écriture n'a
+ * lieu qu'après vérification auprès de Mollie : soit le remboursement transmis
+ * est en échec, soit l'un des remboursements du paiement rattaché à la commande
+ * l'est. Un échec non confirmé par Mollie n'est jamais enregistré.
+ */
+async function recordRefundFailure(strapi, documentId, refund) {
+  const order = await getOrder(strapi, documentId);
+  if (!order) throw new ReservationError("Commande introuvable.", 404);
+  const refundId = value(refund?.id, 100);
+
+  if (mollieVerificationAvailable()) {
+    if (!order.molliePaymentId) {
+      throw new ReservationError(
+        "Le paiement n'est pas rattaché à la commande.",
+        409,
+      );
+    }
+    const refundsPath = `payments/${encodeURIComponent(order.molliePaymentId)}/refunds`;
+    let failureConfirmed = false;
+    if (refundId) {
+      const verified = await mollieRequest(
+        `${refundsPath}/${encodeURIComponent(refundId)}`,
+      );
+      if (!verified) {
+        throw new ReservationError(
+          "Le remboursement est introuvable chez Mollie.",
+          409,
+        );
+      }
+      failureConfirmed = MOLLIE_FAILED_REFUND_STATUSES.has(verified.status);
+    } else {
+      const refunds = await mollieRefundsForPayment(order.molliePaymentId);
+      failureConfirmed = refunds.some((item) =>
+        MOLLIE_FAILED_REFUND_STATUSES.has(item?.status),
+      );
+    }
+    if (!failureConfirmed) {
+      throw new ReservationError(
+        "Aucun remboursement en échec n'est confirmé par Mollie.",
+        409,
+      );
+    }
+  }
+
+  await strapi.documents("api::order.order").update({
+    documentId,
+    data: { refundStatus: "failed" },
+  });
 }
 
 module.exports = {

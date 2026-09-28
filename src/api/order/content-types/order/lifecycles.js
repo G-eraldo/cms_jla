@@ -178,6 +178,7 @@ module.exports = {
           .send({
             ...emailSender(),
             to: order.email,
+            idempotencyKey: `order-confirmation/${documentId}`,
             ...email,
             attachments: [
               {

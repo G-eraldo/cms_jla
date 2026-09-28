@@ -8,6 +8,7 @@ const {
 const {
   ReservationError,
   attachMolliePayment,
+  claimRefund,
   confirmPaidReservation,
   findPaymentView: loadPaymentView,
   matchesOrderCustomerEmail,
@@ -64,7 +65,6 @@ module.exports = createCoreController("api::order.order", ({ strapi }) => ({
       const result = await confirmPaidReservation(
         strapi,
         ctx.params.documentId,
-        ctx.request.body?.data?.paidAt,
       );
       ctx.body = { data: result };
     } catch (error) {
@@ -82,6 +82,16 @@ module.exports = createCoreController("api::order.order", ({ strapi }) => ({
         ctx.request.body?.data?.refund,
       );
       ctx.status = 204;
+    } catch (error) {
+      if (error instanceof ReservationError)
+        return ctx.throw(error.statusCode, error.message);
+      throw error;
+    }
+  },
+
+  async claimRefund(ctx) {
+    try {
+      ctx.body = { data: { claimed: await claimRefund(strapi, ctx.params.documentId) } };
     } catch (error) {
       if (error instanceof ReservationError)
         return ctx.throw(error.statusCode, error.message);

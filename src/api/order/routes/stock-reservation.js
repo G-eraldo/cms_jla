@@ -28,6 +28,12 @@ module.exports = {
     },
     {
       method: "POST",
+      path: "/orders/:documentId/claim-refund",
+      handler: "order.claimRefund",
+      config: { policies: [], middlewares: [] },
+    },
+    {
+      method: "POST",
       path: "/orders/:documentId/record-refund",
       handler: "order.recordRefund",
       config: { policies: [], middlewares: [] },

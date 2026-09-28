@@ -21,6 +21,7 @@ module.exports = {
           text,
           html,
           attachments,
+          idempotencyKey,
         } = options;
 
         const { data, error } = await resend.emails.send({
@@ -33,7 +34,7 @@ module.exports = {
           text,
           html,
           attachments,
-        });
+        }, idempotencyKey ? { idempotencyKey } : undefined);
 
         if (error) {
           throw new Error(error.message || "Échec de l'envoi Resend");

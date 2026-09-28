@@ -127,6 +127,16 @@ const termsSnapshot = () => ({
 const termsHash = () =>
   createHash("sha256").update(JSON.stringify(termsSnapshot())).digest("hex");
 
+function dateForVersion(version) {
+  const months = ["janvier", "fevrier", "mars", "avril", "mai", "juin", "juillet", "aout", "septembre", "octobre", "novembre", "decembre"];
+  const normalized = String(version || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const match = normalized.match(/^(\d{1,2}) ([a-z]+) (\d{4})$/);
+  const month = match ? months.indexOf(match[2]) : -1;
+  if (month < 0) return new Date(0);
+  const date = new Date(Date.UTC(Number(match[3]), month, Number(match[1])));
+  return date.getUTCDate() === Number(match[1]) ? date : new Date(0);
+}
+
 function createTermsPdf(snapshot = termsSnapshot()) {
   return new Promise((resolve, reject) => {
     const document = new PDFDocument({
@@ -136,6 +146,8 @@ function createTermsPdf(snapshot = termsSnapshot()) {
         Title: "Conditions générales de vente Maison JLA",
         Author: "Maison JLA - Julia Touret EI",
         Subject: `Version du ${snapshot.version}`,
+        CreationDate: dateForVersion(snapshot.version),
+        ModDate: dateForVersion(snapshot.version),
       },
     });
     const chunks = [];

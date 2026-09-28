@@ -10,6 +10,7 @@ const {
   attachMolliePayment,
   confirmPaidReservation,
   findPaymentView: loadPaymentView,
+  matchesOrderCustomerEmail,
   recordPaymentOutcome,
   recordRefund,
   recordRefundFailure,
@@ -128,6 +129,21 @@ module.exports = createCoreController("api::order.order", ({ strapi }) => ({
     });
     if (!order) return ctx.notFound();
     return this.transformResponse(order);
+  },
+
+  /**
+   * Vérifie le couple référence + adresse déclarée pour un envoi d'accusé de
+   * rétractation. La réponse ne contient qu'un booléen : l'adresse enregistrée
+   * dans la commande n'est jamais exposée, même à un appelant authentifié.
+   */
+  async verifyCustomerEmail(ctx) {
+    const body = ctx.request.body || {};
+    const match = await matchesOrderCustomerEmail(
+      strapi,
+      ctx.params.reference,
+      body.email || body.data?.email,
+    );
+    return this.transformResponse({ match });
   },
 
   async findPaymentView(ctx) {

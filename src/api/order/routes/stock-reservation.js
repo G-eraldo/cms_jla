@@ -57,6 +57,12 @@ module.exports = {
       config: { policies: [], middlewares: [] },
     },
     {
+      method: "POST",
+      path: "/orders/by-reference/:reference/verify-customer-email",
+      handler: "order.verifyCustomerEmail",
+      config: { policies: [], middlewares: [] },
+    },
+    {
       method: "GET",
       path: "/orders/payment-view/:documentId",
       handler: "order.findPaymentView",

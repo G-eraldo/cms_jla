@@ -542,6 +542,26 @@ async function findPaymentView(strapi, filters) {
   return order || null;
 }
 
+/**
+ * Confirme qu'une référence de commande appartient bien à l'adresse indiquée,
+ * sans jamais renvoyer l'adresse enregistrée : seul un booléen sort de Strapi.
+ * Connaître une référence ne suffit donc plus à déclencher un envoi vers une
+ * adresse arbitraire (relais d'e-mail depuis le domaine de la boutique).
+ */
+async function matchesOrderCustomerEmail(strapi, reference, email) {
+  const wantedReference = value(reference, 100).toUpperCase();
+  const wantedEmail = value(email, 150).toLowerCase();
+  if (!wantedReference || !wantedEmail) return false;
+
+  const [order] = await strapi.documents("api::order.order").findMany({
+    filters: { reference: { $eqi: wantedReference } },
+    fields: ["email"],
+    limit: 1,
+  });
+  if (!order) return false;
+  return value(order.email, 150).toLowerCase() === wantedEmail;
+}
+
 async function anonymizeAbandonedOrders(strapi) {
   const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
   const abandoned = await strapi.documents("api::order.order").findMany({
@@ -604,6 +624,7 @@ module.exports = {
   attachMolliePayment,
   confirmPaidReservation,
   findPaymentView,
+  matchesOrderCustomerEmail,
   recordPaymentOutcome,
   recordRefund,
   recordRefundFailure,

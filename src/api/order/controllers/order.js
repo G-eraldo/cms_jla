@@ -7,8 +7,9 @@ const {
 } = require("../services/sendcloud-webhook");
 const {
   ReservationError,
+  ORDER_ACCESS_HEADER,
+  assertLoadedOrderAccess,
   assertOrderAccess,
-  assertOrderToken,
   attachMolliePayment,
   confirmPaidReservation,
   findPaymentView: loadPaymentView,
@@ -27,7 +28,7 @@ const UNPARSED_BODY = Symbol.for("unparsedBody");
  * création de la commande, et conditionne tout accès ultérieur à celle-ci.
  */
 const orderTokenFrom = (ctx) =>
-  ctx?.request?.headers?.["x-order-token"] ||
+  ctx?.request?.headers?.[ORDER_ACCESS_HEADER] ||
   ctx?.request?.body?.data?.accessToken ||
   null;
 
@@ -180,7 +181,9 @@ module.exports = createCoreController("api::order.order", ({ strapi }) => ({
   async loadView(ctx, filters) {
     const order = await loadPaymentView(strapi, filters);
     if (!order) return null;
-    assertOrderToken(order, orderTokenFrom(ctx));
+    assertLoadedOrderAccess(strapi, order, orderTokenFrom(ctx), {
+      kind: "lecture",
+    });
     delete order.accessToken;
     return order;
   },

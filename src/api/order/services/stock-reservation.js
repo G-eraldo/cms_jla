@@ -27,6 +27,10 @@ class ReservationError extends Error {
   }
 }
 
+/**
+ * En-tête HTTP qui porte le jeton de commande. Source unique du nom : le
+ * contrôleur l'importe pour lire l'en-tête envoyé par le front.
+ */
 const ORDER_ACCESS_HEADER = "x-order-token";
 
 /** Jeton opaque remis une seule fois, à la création de la commande. */
@@ -68,19 +72,36 @@ function assertOrderToken(order, token) {
   return false;
 }
 
+const ORDER_ACCESS_KINDS = new Set(["lecture", "mutation"]);
+
+/**
+ * Garde unique des routes de commande, lectures comme mutations : applique
+ * `assertOrderToken` sur une commande déjà chargée, puis journalise le refus en
+ * mode compat. Le jeton présenté n'est jamais écrit dans les journaux ; seuls
+ * la référence et le type d'appel le sont.
+ */
+function assertLoadedOrderAccess(strapi, order, token, context = {}) {
+  if (assertOrderToken(order, token)) return order;
+  if (orderAccessMode() === "compat") {
+    const kind = ORDER_ACCESS_KINDS.has(context.kind) ? context.kind : "mutation";
+    strapi.log?.warn?.(
+      `Commande ${order?.reference || "(sans référence)"} : ${kind} sans jeton de commande valide (mode compat).`,
+    );
+  }
+  return order;
+}
+
 /** Charge la commande et vérifie le jeton fourni par l'appelant. */
-async function assertOrderAccess(strapi, documentId, token) {
+async function assertOrderAccess(strapi, documentId, token, context = {}) {
   const order = await strapi.documents("api::order.order").findOne({
     documentId,
     fields: ["reference", "accessToken"],
   });
   if (!order) throw new ReservationError("Commande introuvable.", 404);
-  if (!assertOrderToken(order, token) && orderAccessMode() === "compat") {
-    strapi.log?.warn?.(
-      `Commande ${order.reference} : appel sans jeton de commande valide (mode compat).`,
-    );
-  }
-  return order;
+  return assertLoadedOrderAccess(strapi, order, token, {
+    kind: "mutation",
+    ...context,
+  });
 }
 
 const value = (input, maxLength = 255) =>
@@ -850,7 +871,9 @@ async function recordRefundFailure(strapi, documentId, refund) {
 module.exports = {
   ReservationError,
   TERMINAL_PAYMENT_STATUSES,
+  ORDER_ACCESS_HEADER,
   anonymizeAbandonedOrders,
+  assertLoadedOrderAccess,
   assertOrderAccess,
   assertOrderToken,
   attachMolliePayment,

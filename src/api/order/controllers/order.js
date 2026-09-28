@@ -127,7 +127,11 @@ module.exports = createCoreController("api::order.order", ({ strapi }) => ({
         ctx.params.documentId,
         orderTokenFrom(ctx),
       );
-      await recordRefundFailure(strapi, ctx.params.documentId);
+      await recordRefundFailure(
+        strapi,
+        ctx.params.documentId,
+        ctx.request.body?.data?.refund,
+      );
       ctx.status = 204;
     } catch (error) {
       if (error instanceof ReservationError)

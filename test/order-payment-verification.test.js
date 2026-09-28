@@ -10,6 +10,7 @@ const {
   findPaymentView,
   recordPaymentOutcome,
   recordRefund,
+  recordRefundFailure,
 } = require("../src/api/order/services/stock-reservation");
 
 const originalFetch = globalThis.fetch;
@@ -283,4 +284,197 @@ test("en production sans clé Mollie, la vérification échoue fermée", async (
     is503,
   );
   assert.equal(strapi.updates.length, 0);
+});
+
+/**
+ * Route les appels Mollie selon l'URL : la fiche d'un paiement, un
+ * remboursement précis, ou la liste des remboursements du paiement.
+ */
+function mollieRouter({ payment, refund, refunds }) {
+  return async (url) => {
+    const path = String(url).replace("https://api.mollie.com/v2/", "");
+    if (path.endsWith("/refunds")) {
+      if (refunds === undefined) return mollieResponse({}, 404);
+      return mollieResponse({
+        count: refunds.length,
+        _embedded: { refunds },
+      });
+    }
+    if (path.includes("/refunds/")) {
+      if (refund === undefined) return mollieResponse({}, 404);
+      return mollieResponse(refund);
+    }
+    if (payment === undefined) return mollieResponse({}, 404);
+    return mollieResponse(payment);
+  };
+}
+
+test("attachMolliePayment refuse un paiement absent chez Mollie", async () => {
+  const order = baseOrder();
+  const strapi = fakeStrapi(order);
+  globalThis.fetch = mollieRouter({});
+
+  await assert.rejects(
+    () => attachMolliePayment(strapi, "doc-1", "tr_abc123"),
+    is409,
+  );
+  assert.equal(strapi.updates.length, 0);
+  assert.equal(order.molliePaymentId, "tr_abc123");
+});
+
+test("attachMolliePayment refuse un paiement sans référence de commande", async () => {
+  const order = baseOrder();
+  const strapi = fakeStrapi(order);
+  globalThis.fetch = mollieRouter({
+    payment: { id: "tr_abc123", status: "open", metadata: {} },
+  });
+
+  await assert.rejects(
+    () => attachMolliePayment(strapi, "doc-1", "tr_abc123"),
+    is409,
+  );
+  assert.equal(strapi.updates.length, 0);
+});
+
+test("recordPaymentOutcome refuse un paiement absent chez Mollie", async () => {
+  const order = baseOrder();
+  const strapi = fakeStrapi(order);
+  globalThis.fetch = mollieRouter({});
+
+  await assert.rejects(
+    () => recordPaymentOutcome(strapi, "doc-1", "failed"),
+    is409,
+  );
+  assert.equal(strapi.updates.length, 0);
+  assert.equal(order.paymentStatus, "pending");
+});
+
+test("recordPaymentOutcome refuse un paiement sans référence de commande", async () => {
+  const order = baseOrder();
+  const strapi = fakeStrapi(order);
+  globalThis.fetch = mollieRouter({
+    payment: { id: "tr_abc123", status: "failed", metadata: {} },
+  });
+
+  await assert.rejects(
+    () => recordPaymentOutcome(strapi, "doc-1", "failed"),
+    is409,
+  );
+  assert.equal(strapi.updates.length, 0);
+  assert.equal(order.paymentStatus, "pending");
+});
+
+test("recordRefundFailure refuse un échec non confirmé par Mollie", async () => {
+  const order = baseOrder({ paymentStatus: "paid", refundStatus: "pending" });
+  const strapi = fakeStrapi(order);
+  globalThis.fetch = mollieRouter({ refunds: [] });
+
+  await assert.rejects(() => recordRefundFailure(strapi, "doc-1"), is409);
+  assert.equal(strapi.updates.length, 0);
+  assert.equal(order.refundStatus, "pending");
+});
+
+test("recordRefundFailure refuse un remboursement encaissé chez Mollie", async () => {
+  const order = baseOrder({ paymentStatus: "paid", refundStatus: "pending" });
+  const strapi = fakeStrapi(order);
+  globalThis.fetch = mollieRouter({
+    refunds: [{ id: "re_1", status: "refunded" }],
+  });
+
+  await assert.rejects(() => recordRefundFailure(strapi, "doc-1"), is409);
+  assert.equal(strapi.updates.length, 0);
+  assert.equal(order.refundStatus, "pending");
+});
+
+test("recordRefundFailure enregistre un échec confirmé par Mollie", async () => {
+  const order = baseOrder({ paymentStatus: "paid", refundStatus: "pending" });
+  const strapi = fakeStrapi(order);
+  globalThis.fetch = mollieRouter({
+    refunds: [{ id: "re_1", status: "failed" }],
+  });
+
+  await recordRefundFailure(strapi, "doc-1");
+
+  assert.equal(order.refundStatus, "failed");
+  assert.equal(strapi.updates.length, 1);
+});
+
+test("recordRefundFailure refuse un remboursement transmis sans échec", async () => {
+  const order = baseOrder({ paymentStatus: "paid", refundStatus: "pending" });
+  const strapi = fakeStrapi(order);
+  globalThis.fetch = mollieRouter({ refund: { id: "re_1", status: "pending" } });
+
+  await assert.rejects(
+    () => recordRefundFailure(strapi, "doc-1", { id: "re_1" }),
+    is409,
+  );
+  assert.equal(strapi.updates.length, 0);
+  assert.equal(order.refundStatus, "pending");
+});
+
+test("recordRefundFailure enregistre le remboursement transmis en échec", async () => {
+  const order = baseOrder({ paymentStatus: "paid", refundStatus: "pending" });
+  const strapi = fakeStrapi(order);
+  globalThis.fetch = mollieRouter({ refund: { id: "re_1", status: "canceled" } });
+
+  await recordRefundFailure(strapi, "doc-1", { id: "re_1" });
+
+  assert.equal(order.refundStatus, "failed");
+});
+
+test("recordRefundFailure refuse un remboursement inconnu de Mollie", async () => {
+  const order = baseOrder({ paymentStatus: "paid", refundStatus: "pending" });
+  const strapi = fakeStrapi(order);
+  globalThis.fetch = mollieRouter({});
+
+  await assert.rejects(
+    () => recordRefundFailure(strapi, "doc-1", { id: "re_inconnu" }),
+    is409,
+  );
+  assert.equal(strapi.updates.length, 0);
+});
+
+test("recordRefundFailure refuse une commande sans paiement rattaché", async () => {
+  const order = baseOrder({
+    paymentStatus: "paid",
+    refundStatus: "pending",
+    molliePaymentId: null,
+  });
+  const strapi = fakeStrapi(order);
+  let called = false;
+  globalThis.fetch = async () => {
+    called = true;
+    return mollieResponse({});
+  };
+
+  await assert.rejects(() => recordRefundFailure(strapi, "doc-1"), is409);
+  assert.equal(called, false);
+  assert.equal(strapi.updates.length, 0);
+});
+
+test("en production sans clé Mollie, l'échec de remboursement échoue fermé", async () => {
+  delete process.env.MOLLIE_API_KEY;
+  process.env.NODE_ENV = "production";
+  const order = baseOrder({ paymentStatus: "paid", refundStatus: "pending" });
+  const strapi = fakeStrapi(order);
+
+  await assert.rejects(() => recordRefundFailure(strapi, "doc-1"), is503);
+  assert.equal(strapi.updates.length, 0);
+  assert.equal(order.refundStatus, "pending");
+});
+
+test("sans clé Mollie hors production, l'échec de remboursement reste enregistré", async () => {
+  delete process.env.MOLLIE_API_KEY;
+  const order = baseOrder({ paymentStatus: "paid", refundStatus: "pending" });
+  const strapi = fakeStrapi(order);
+  let called = false;
+  globalThis.fetch = async () => {
+    called = true;
+    return mollieResponse({});
+  };
+
+  await recordRefundFailure(strapi, "doc-1");
+
+  assert.equal(called, false);
+  assert.equal(order.refundStatus, "failed");
 });

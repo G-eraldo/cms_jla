@@ -1,5 +1,7 @@
 "use strict";
 
+const { randomBytes, timingSafeEqual } = require("node:crypto");
+
 const RESERVATION_MINUTES = 30;
 const ORDER_REFERENCE_PATTERN = /^JLA-\d{8}-[A-F0-9]{8,32}$/;
 const PAYMENT_VIEW_FIELDS = [
@@ -8,6 +10,7 @@ const PAYMENT_VIEW_FIELDS = [
   "paymentStatus",
   "confirmationEmailSentAt",
   "refundStatus",
+  "accessToken",
 ];
 const { termsHash, termsSnapshot, TERMS_VERSION } = require("./terms");
 const {
@@ -22,6 +25,62 @@ class ReservationError extends Error {
     super(message);
     this.statusCode = statusCode;
   }
+}
+
+const ORDER_ACCESS_HEADER = "x-order-token";
+
+/** Jeton opaque remis une seule fois, à la création de la commande. */
+const newOrderAccessToken = () => randomBytes(24).toString("hex");
+
+/**
+ * Politique d'application du jeton de commande.
+ * - "strict"  : le jeton est exigé dès qu'une commande en possède un ;
+ * - "compat"  : journaux seulement (déploiement progressif, le temps que le
+ *               front transmette le jeton sur tous les appels) ;
+ * - "off"     : aucun contrôle (interrupteur de secours).
+ */
+function orderAccessMode() {
+  const mode = String(process.env.ORDER_ACCESS_ENFORCEMENT || "")
+    .trim()
+    .toLowerCase();
+  if (mode === "off") return "off";
+  if (mode === "strict") return "strict";
+  return "compat";
+}
+
+function safeTokenEqual(expected, provided) {
+  const left = Buffer.from(String(expected || ""), "utf8");
+  const right = Buffer.from(String(provided || ""), "utf8");
+  if (!left.length || left.length !== right.length) return false;
+  return timingSafeEqual(left, right);
+}
+
+/** Vérifie qu'un appelant détient bien le jeton de la commande chargée. */
+function assertOrderToken(order, token) {
+  const expected = order?.accessToken;
+  if (!expected) return true; // commande créée avant l'introduction du jeton
+  const mode = orderAccessMode();
+  if (mode === "off") return true;
+  if (safeTokenEqual(expected, token)) return true;
+  if (mode === "strict") {
+    throw new ReservationError("Accès à la commande non autorisé.", 403);
+  }
+  return false;
+}
+
+/** Charge la commande et vérifie le jeton fourni par l'appelant. */
+async function assertOrderAccess(strapi, documentId, token) {
+  const order = await strapi.documents("api::order.order").findOne({
+    documentId,
+    fields: ["reference", "accessToken"],
+  });
+  if (!order) throw new ReservationError("Commande introuvable.", 404);
+  if (!assertOrderToken(order, token) && orderAccessMode() === "compat") {
+    strapi.log?.warn?.(
+      `Commande ${order.reference} : appel sans jeton de commande valide (mode compat).`,
+    );
+  }
+  return order;
 }
 
 const value = (input, maxLength = 255) =>
@@ -390,6 +449,7 @@ async function reserveOrder(strapi, payload) {
           // Server-side proof: the client only signals acceptance; this immutable
           // snapshot identifies exactly what was accepted at this instant.
           checkoutKey: input.checkoutKey,
+          accessToken: newOrderAccessToken(),
           termsVersion: TERMS_VERSION,
           termsHash: termsHash(),
           termsSnapshot: termsSnapshot(),
@@ -479,20 +539,13 @@ async function attachMolliePayment(strapi, documentId, molliePaymentId) {
     const payment = await mollieRequest(
       `payments/${encodeURIComponent(paymentId)}`,
     );
-    const metadataDocumentId = payment
-      ? mollieOrderDocumentId(payment)
-      : null;
-    if (metadataDocumentId && metadataDocumentId !== order.documentId) {
+    if (!payment) {
       throw new ReservationError(
-        "Le paiement ne correspond pas à cette commande.",
+        "Le paiement est introuvable chez Mollie.",
         409,
       );
     }
-    if (!payment) {
-      strapi.log?.warn?.(
-        `Paiement Mollie ${paymentId} introuvable au rattachement de la commande ${order.reference}.`,
-      );
-    }
+    assertPaymentMatchesOrder(payment, order);
   }
 
   await strapi.documents("api::order.order").update({
@@ -615,13 +668,7 @@ async function recordPaymentOutcome(strapi, documentId, paymentStatus) {
         409,
       );
     }
-    const metadataDocumentId = mollieOrderDocumentId(payment);
-    if (metadataDocumentId && metadataDocumentId !== order.documentId) {
-      throw new ReservationError(
-        "Le paiement ne correspond pas à cette commande.",
-        409,
-      );
-    }
+    assertPaymentMatchesOrder(payment, order);
     if (payment.status !== paymentStatus) {
       throw new ReservationError(
         "Le statut annoncé ne correspond pas au statut réel du paiement.",
@@ -747,9 +794,12 @@ module.exports = {
   ReservationError,
   TERMINAL_PAYMENT_STATUSES,
   anonymizeAbandonedOrders,
+  assertOrderAccess,
+  assertOrderToken,
   attachMolliePayment,
   confirmPaidReservation,
   findPaymentView,
+  newOrderAccessToken,
   recordPaymentOutcome,
   recordRefund,
   recordRefundFailure,

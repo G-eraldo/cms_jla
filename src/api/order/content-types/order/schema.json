@@ -17,6 +17,11 @@
       "private": true,
       "maxLength": 64
     },
+    "accessToken": {
+      "type": "string",
+      "private": true,
+      "maxLength": 64
+    },
     "firstName": { "type": "string", "required": true },
     "lastName": { "type": "string", "required": true },
     "email": { "type": "email", "required": true },

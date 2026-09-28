@@ -3,6 +3,21 @@
 const path = require('path');
 const { isDatabaseClientKind } = require('@strapi/database');
 
+/**
+ * Les valeurs par défaut de Strapi ('strapi'/'strapi') sont publiques et
+ * documentées. En production, on refuse de démarrer avec ces identifiants :
+ * mieux vaut une erreur explicite au déploiement qu'une base ouverte.
+ */
+function requiredInProduction(env, key, fallback) {
+  const value = env(key, fallback);
+  if (env('NODE_ENV') === 'production' && value === fallback) {
+    throw new Error(
+      `La variable d'environnement ${key} doit être définie en production (valeur par défaut '${fallback}' refusée).`
+    );
+  }
+  return value;
+}
+
 module.exports = ({ env }) => {
   const client = env('DATABASE_CLIENT', 'sqlite');
 
@@ -19,9 +34,9 @@ module.exports = ({ env }) => {
       connection: {
         host: env('DATABASE_HOST', 'localhost'),
         port: env.int('DATABASE_PORT', 3306),
-        database: env('DATABASE_NAME', 'strapi'),
-        user: env('DATABASE_USERNAME', 'strapi'),
-        password: env('DATABASE_PASSWORD', 'strapi'),
+        database: requiredInProduction(env, 'DATABASE_NAME', 'strapi'),
+        user: requiredInProduction(env, 'DATABASE_USERNAME', 'strapi'),
+        password: requiredInProduction(env, 'DATABASE_PASSWORD', 'strapi'),
         ssl: env.bool('DATABASE_SSL', false) && {
           key: env('DATABASE_SSL_KEY', undefined),
           cert: env('DATABASE_SSL_CERT', undefined),
@@ -39,9 +54,9 @@ module.exports = ({ env }) => {
         connectionString: env('DATABASE_URL'),
         host: env('DATABASE_HOST', 'localhost'),
         port: env.int('DATABASE_PORT', 5432),
-        database: env('DATABASE_NAME', 'strapi'),
-        user: env('DATABASE_USERNAME', 'strapi'),
-        password: env('DATABASE_PASSWORD', 'strapi'),
+        database: requiredInProduction(env, 'DATABASE_NAME', 'strapi'),
+        user: requiredInProduction(env, 'DATABASE_USERNAME', 'strapi'),
+        password: requiredInProduction(env, 'DATABASE_PASSWORD', 'strapi'),
         ssl: env.bool('DATABASE_SSL', false) && {
           key: env('DATABASE_SSL_KEY', undefined),
           cert: env('DATABASE_SSL_CERT', undefined),

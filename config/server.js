@@ -25,6 +25,14 @@ module.exports = ({ env }) => ({
           strapi.log.info(`${count} commande(s) non payée(s) anonymisée(s).`);
       },
       "*/10 * * * *": async ({ strapi }) => {
+        // Reprise bornée : sans plafond, une commande dont l'e-mail de
+        // confirmation échoue était retraitée à chaque passage, régénérant
+        // facture, e-mail, notification et import Sendcloud indéfiniment.
+        const MAX_ATTEMPTS = 5;
+        const retryStore = strapi.store({
+          type: "plugin",
+          name: "maison-jla-confirmation-retry",
+        });
         const pending = await strapi.documents("api::order.order").findMany({
           filters: {
             paymentStatus: "paid",
@@ -34,10 +42,44 @@ module.exports = ({ env }) => ({
           limit: 10,
         });
         for (const order of pending) {
+          const key = order.documentId;
+          const previous = (await retryStore.get({ key })) || { attempts: 0 };
+          if (previous.attempts >= MAX_ATTEMPTS) {
+            if (!previous.exhausted) {
+              strapi.log.error(
+                `Commande ${order.reference} : confirmation toujours non envoyée après ${previous.attempts} tentatives, reprise arrêtée.`,
+              );
+              await retryStore.set({
+                key,
+                value: { ...previous, exhausted: true },
+              });
+            }
+            continue;
+          }
+          await retryStore.set({
+            key,
+            value: {
+              attempts: previous.attempts + 1,
+              lastAttemptAt: new Date().toISOString(),
+            },
+          });
           await strapi.documents("api::order.order").update({
             documentId: order.documentId,
             data: { paymentStatus: "paid" },
           });
+          const updated = await strapi.documents("api::order.order").findOne({
+            documentId: order.documentId,
+            fields: ["confirmationEmailSentAt"],
+          });
+          if (updated?.confirmationEmailSentAt) {
+            await retryStore.set({
+              key,
+              value: {
+                attempts: 0,
+                sentAt: updated.confirmationEmailSentAt,
+              },
+            });
+          }
         }
       },
     },

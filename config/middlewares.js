@@ -34,7 +34,6 @@ module.exports = [
             "market-assets.strapi.io",
             ...(r2MediaPublicUrl ? [r2MediaPublicUrl] : []),
           ],
-          upgradeInsecureRequests: null,
         },
       },
     },

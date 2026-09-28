@@ -8,7 +8,6 @@ const PAYMENT_VIEW_FIELDS = [
   "paymentStatus",
   "confirmationEmailSentAt",
   "refundStatus",
-  "checkoutKey",
 ];
 const { termsHash, termsSnapshot, TERMS_VERSION } = require("./terms");
 const {
@@ -207,6 +206,8 @@ async function getOrder(strapi, documentId) {
       "stockDecrementedAt",
       "refundStatus",
       "checkoutKey",
+      "totalAmount",
+      "currency",
     ],
     populate: { items: { fields: ["productDocumentId", "quantity"] } },
   });
@@ -405,60 +406,141 @@ async function reserveOrder(strapi, payload) {
   }
 }
 
-async function attachMolliePayment(strapi, documentId, molliePaymentId) {
-  const order = await getOrder(strapi, documentId);
-  if (!order || !activeReservation(order) || !value(molliePaymentId, 100)) {
-    throw new ReservationError(
-      "La réservation de commande n'est plus disponible.",
-      409,
-    );
+const MOLLIE_API_BASE = "https://api.mollie.com/v2";
+const MOLLIE_REFUND_STATUSES = {
+  refunded: "refunded",
+  failed: "failed",
+  canceled: "failed",
+  queued: "processing",
+  pending: "processing",
+  processing: "processing",
+};
+
+const mollieOrderDocumentId = (payment) =>
+  payment?.metadata?.orderDocumentId ||
+  payment?.metadata?.order_document_id ||
+  null;
+
+/**
+ * Indique si une vérification auprès de Mollie est possible. Hors production,
+ * l'absence de clé conserve le comportement de développement (aucune
+ * vérification) ; en production, l'absence de clé est une erreur bloquante.
+ */
+function mollieVerificationAvailable() {
+  if (process.env.MOLLIE_API_KEY) return true;
+  if (process.env.NODE_ENV === "production") {
+    throw new ReservationError("Le paiement n'a pas pu être vérifié.", 503);
   }
-  await strapi.documents("api::order.order").update({
-    documentId,
-    data: { molliePaymentId: value(molliePaymentId, 100) },
-  });
+  return false;
 }
 
-async function verifyMolliePaid(order) {
+/** Interroge l'API Mollie. Retourne null uniquement si la ressource est absente. */
+async function mollieRequest(path) {
   const apiKey = process.env.MOLLIE_API_KEY;
-  if (!apiKey) {
-    if (process.env.NODE_ENV === "production") {
-      throw new ReservationError("Le paiement n’a pas pu être vérifié.", 503);
-    }
-    return null;
+  const response = await fetch(`${MOLLIE_API_BASE}/${path}`, {
+    headers: { Authorization: `Bearer ${apiKey}` },
+    signal: AbortSignal.timeout(8000),
+  });
+  if (response.status === 404) return null;
+  if (!response.ok) {
+    throw new ReservationError("Le paiement n'a pas pu être vérifié.", 502);
   }
-  if (!order.molliePaymentId) {
+  return response.json();
+}
+
+/** Un paiement ne peut agir que sur la commande qu'il référence. */
+function assertPaymentMatchesOrder(payment, order) {
+  const metadataDocumentId = mollieOrderDocumentId(payment);
+  if (!metadataDocumentId) {
     throw new ReservationError(
-      "Le paiement n’est pas rattaché à la commande.",
+      "Le paiement ne référence pas cette commande.",
       409,
     );
   }
-
-  const response = await fetch(
-    `https://api.mollie.com/v2/payments/${encodeURIComponent(order.molliePaymentId)}`,
-    {
-      headers: { Authorization: `Bearer ${apiKey}` },
-      signal: AbortSignal.timeout(8000),
-    },
-  );
-  if (!response.ok) {
-    throw new ReservationError("Le paiement n’a pas pu être vérifié.", 502);
-  }
-  const payment = await response.json();
-  if (payment.status !== "paid") {
-    throw new ReservationError("Le paiement n’est pas encaissé.", 409);
-  }
-  const metadataDocumentId =
-    payment.metadata?.orderDocumentId || payment.metadata?.order_document_id;
-  if (metadataDocumentId && metadataDocumentId !== order.documentId) {
+  if (metadataDocumentId !== order.documentId) {
     throw new ReservationError(
       "Le paiement ne correspond pas à cette commande.",
       409,
     );
   }
-  return payment;
 }
 
+async function attachMolliePayment(strapi, documentId, molliePaymentId) {
+  const order = await getOrder(strapi, documentId);
+  const paymentId = value(molliePaymentId, 100);
+  if (!order || !activeReservation(order) || !paymentId) {
+    throw new ReservationError(
+      "La réservation de commande n'est plus disponible.",
+      409,
+    );
+  }
+
+  if (mollieVerificationAvailable()) {
+    const payment = await mollieRequest(
+      `payments/${encodeURIComponent(paymentId)}`,
+    );
+    const metadataDocumentId = payment
+      ? mollieOrderDocumentId(payment)
+      : null;
+    if (metadataDocumentId && metadataDocumentId !== order.documentId) {
+      throw new ReservationError(
+        "Le paiement ne correspond pas à cette commande.",
+        409,
+      );
+    }
+    if (!payment) {
+      strapi.log?.warn?.(
+        `Paiement Mollie ${paymentId} introuvable au rattachement de la commande ${order.reference}.`,
+      );
+    }
+  }
+
+  await strapi.documents("api::order.order").update({
+    documentId,
+    data: { molliePaymentId: paymentId },
+  });
+}
+
+async function verifyMolliePaid(order) {
+  if (!mollieVerificationAvailable()) return null;
+  if (!order.molliePaymentId) {
+    throw new ReservationError(
+      "Le paiement n'est pas rattaché à la commande.",
+      409,
+    );
+  }
+
+  const payment = await mollieRequest(
+    `payments/${encodeURIComponent(order.molliePaymentId)}`,
+  );
+  if (!payment) {
+    throw new ReservationError("Le paiement est introuvable chez Mollie.", 409);
+  }
+  if (payment.status !== "paid") {
+    throw new ReservationError("Le paiement n'est pas encaissé.", 409);
+  }
+  assertPaymentMatchesOrder(payment, order);
+
+  const paidAmount = amount(payment.amount?.value);
+  const orderAmount = amount(order.totalAmount);
+  if (!Number.isFinite(paidAmount) || paidAmount !== orderAmount) {
+    throw new ReservationError(
+      "Le montant encaissé ne correspond pas au montant de la commande.",
+      409,
+    );
+  }
+  if (
+    payment.amount?.currency &&
+    order.currency &&
+    payment.amount.currency !== order.currency
+  ) {
+    throw new ReservationError(
+      "La devise encaissée ne correspond pas à celle de la commande.",
+      409,
+    );
+  }
+  return payment;
+}
 async function confirmPaidReservation(strapi, documentId, paidAt) {
   const order = await getOrder(strapi, documentId);
   if (!order) throw new ReservationError("Commande introuvable.", 404);
@@ -516,6 +598,38 @@ async function recordPaymentOutcome(strapi, documentId, paymentStatus) {
   if (order.paymentStatus === "paid") {
     throw new ReservationError("Cette commande est déjà payée.", 409);
   }
+
+  if (mollieVerificationAvailable()) {
+    if (!order.molliePaymentId) {
+      throw new ReservationError(
+        "Le paiement n'est pas rattaché à la commande.",
+        409,
+      );
+    }
+    const payment = await mollieRequest(
+      `payments/${encodeURIComponent(order.molliePaymentId)}`,
+    );
+    if (!payment) {
+      throw new ReservationError(
+        "Le paiement est introuvable chez Mollie.",
+        409,
+      );
+    }
+    const metadataDocumentId = mollieOrderDocumentId(payment);
+    if (metadataDocumentId && metadataDocumentId !== order.documentId) {
+      throw new ReservationError(
+        "Le paiement ne correspond pas à cette commande.",
+        409,
+      );
+    }
+    if (payment.status !== paymentStatus) {
+      throw new ReservationError(
+        "Le statut annoncé ne correspond pas au statut réel du paiement.",
+        409,
+      );
+    }
+  }
+
   if (order.paymentStatus === paymentStatus) return false;
   await strapi.documents("api::order.order").update({
     documentId,
@@ -523,7 +637,6 @@ async function recordPaymentOutcome(strapi, documentId, paymentStatus) {
   });
   return true;
 }
-
 async function findPaymentView(strapi, filters) {
   if (filters.documentId) {
     return strapi.documents("api::order.order").findOne({
@@ -575,22 +688,55 @@ async function anonymizeAbandonedOrders(strapi) {
 }
 
 async function recordRefund(strapi, documentId, refund) {
-  const status =
-    refund?.status === "refunded"
-      ? "refunded"
-      : refund?.status === "failed"
-        ? "failed"
-        : "processing";
+  const order = await getOrder(strapi, documentId);
+  if (!order) throw new ReservationError("Commande introuvable.", 404);
+  const refundId = value(refund?.id, 100);
+  if (!refundId) {
+    throw new ReservationError("Le remboursement transmis est invalide.", 400);
+  }
+
+  let status;
+  if (mollieVerificationAvailable()) {
+    if (!order.molliePaymentId) {
+      throw new ReservationError(
+        "Le paiement n'est pas rattaché à la commande.",
+        409,
+      );
+    }
+    const verified = await mollieRequest(
+      `payments/${encodeURIComponent(order.molliePaymentId)}/refunds/${encodeURIComponent(refundId)}`,
+    );
+    if (!verified) {
+      throw new ReservationError(
+        "Le remboursement est introuvable chez Mollie.",
+        409,
+      );
+    }
+    status = MOLLIE_REFUND_STATUSES[verified.status];
+    if (!status) {
+      throw new ReservationError(
+        "Le statut du remboursement renvoyé par Mollie est inconnu.",
+        409,
+      );
+    }
+  } else {
+    status =
+      refund?.status === "refunded"
+        ? "refunded"
+        : refund?.status === "failed"
+          ? "failed"
+          : "processing";
+  }
+
   await strapi.documents("api::order.order").update({
     documentId,
     data: {
-      mollieRefundId: value(refund?.id, 100),
+      mollieRefundId: refundId,
       refundRequestedAt: nowIso(),
       refundStatus: status,
     },
   });
 }
-
 async function recordRefundFailure(strapi, documentId) {
   await strapi
     .documents("api::order.order")

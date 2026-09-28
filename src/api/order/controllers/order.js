@@ -114,12 +114,29 @@ module.exports = createCoreController("api::order.order", ({ strapi }) => ({
     }
   },
 
+  /**
+   * Retire les attributs marqués `private` avant de renvoyer une commande.
+   * Le repli renvoie le document tel quel : la vue de paiement ne sélectionne
+   * déjà aucun champ privé.
+   */
+  async sanitizedOrder(ctx, order) {
+    if (!order || typeof this.sanitizeOutput !== "function") return order;
+    try {
+      return await this.sanitizeOutput(order, ctx);
+    } catch (error) {
+      strapi.log.error(
+        `Assainissement de la sortie commande impossible : ${error.message}`,
+      );
+      return order;
+    }
+  },
+
   async findByReference(ctx) {
     const order = await loadPaymentView(strapi, {
       reference: ctx.params.reference,
     });
     if (!order) return ctx.notFound();
-    return this.transformResponse(order);
+    return this.transformResponse(await this.sanitizedOrder(ctx, order));
   },
 
   async findByPaymentId(ctx) {
@@ -127,7 +144,7 @@ module.exports = createCoreController("api::order.order", ({ strapi }) => ({
       molliePaymentId: ctx.params.paymentId,
     });
     if (!order) return ctx.notFound();
-    return this.transformResponse(order);
+    return this.transformResponse(await this.sanitizedOrder(ctx, order));
   },
 
   async findPaymentView(ctx) {
@@ -135,7 +152,7 @@ module.exports = createCoreController("api::order.order", ({ strapi }) => ({
       documentId: ctx.params.documentId,
     });
     if (!order) return ctx.notFound();
-    return this.transformResponse(order);
+    return this.transformResponse(await this.sanitizedOrder(ctx, order));
   },
 
   async find(ctx) {

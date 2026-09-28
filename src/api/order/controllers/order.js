@@ -7,6 +7,8 @@ const {
 } = require("../services/sendcloud-webhook");
 const {
   ReservationError,
+  assertOrderAccess,
+  assertOrderToken,
   attachMolliePayment,
   confirmPaidReservation,
   findPaymentView: loadPaymentView,
@@ -18,6 +20,16 @@ const {
 } = require("../services/stock-reservation");
 
 const UNPARSED_BODY = Symbol.for("unparsedBody");
+
+/**
+ * Jeton de commande présenté par l'appelant : en-tête dédié (appels du front)
+ * ou corps de requête (compatibilité). Le jeton est remis une seule fois, à la
+ * création de la commande, et conditionne tout accès ultérieur à celle-ci.
+ */
+const orderTokenFrom = (ctx) =>
+  ctx?.request?.headers?.["x-order-token"] ||
+  ctx?.request?.body?.data?.accessToken ||
+  null;
 
 module.exports = createCoreController("api::order.order", ({ strapi }) => ({
   async reserve(ctx) {
@@ -34,6 +46,11 @@ module.exports = createCoreController("api::order.order", ({ strapi }) => ({
 
   async attachPayment(ctx) {
     try {
+      await assertOrderAccess(
+        strapi,
+        ctx.params.documentId,
+        orderTokenFrom(ctx),
+      );
       await attachMolliePayment(
         strapi,
         ctx.params.documentId,
@@ -49,6 +66,11 @@ module.exports = createCoreController("api::order.order", ({ strapi }) => ({
 
   async releaseReservation(ctx) {
     try {
+      await assertOrderAccess(
+        strapi,
+        ctx.params.documentId,
+        orderTokenFrom(ctx),
+      );
       await releaseReservation(strapi, ctx.params.documentId);
       ctx.status = 204;
     } catch (error) {
@@ -60,6 +82,11 @@ module.exports = createCoreController("api::order.order", ({ strapi }) => ({
 
   async confirmPaidReservation(ctx) {
     try {
+      await assertOrderAccess(
+        strapi,
+        ctx.params.documentId,
+        orderTokenFrom(ctx),
+      );
       const result = await confirmPaidReservation(
         strapi,
         ctx.params.documentId,
@@ -75,6 +102,11 @@ module.exports = createCoreController("api::order.order", ({ strapi }) => ({
 
   async recordRefund(ctx) {
     try {
+      await assertOrderAccess(
+        strapi,
+        ctx.params.documentId,
+        orderTokenFrom(ctx),
+      );
       await recordRefund(
         strapi,
         ctx.params.documentId,
@@ -90,6 +122,11 @@ module.exports = createCoreController("api::order.order", ({ strapi }) => ({
 
   async recordRefundFailure(ctx) {
     try {
+      await assertOrderAccess(
+        strapi,
+        ctx.params.documentId,
+        orderTokenFrom(ctx),
+      );
       await recordRefundFailure(
         strapi,
         ctx.params.documentId,
@@ -105,6 +142,11 @@ module.exports = createCoreController("api::order.order", ({ strapi }) => ({
 
   async recordPaymentOutcome(ctx) {
     try {
+      await assertOrderAccess(
+        strapi,
+        ctx.params.documentId,
+        orderTokenFrom(ctx),
+      );
       await recordPaymentOutcome(
         strapi,
         ctx.params.documentId,
@@ -135,28 +177,54 @@ module.exports = createCoreController("api::order.order", ({ strapi }) => ({
     }
   },
 
+  async loadView(ctx, filters) {
+    const order = await loadPaymentView(strapi, filters);
+    if (!order) return null;
+    assertOrderToken(order, orderTokenFrom(ctx));
+    delete order.accessToken;
+    return order;
+  },
+
   async findByReference(ctx) {
-    const order = await loadPaymentView(strapi, {
-      reference: ctx.params.reference,
-    });
-    if (!order) return ctx.notFound();
-    return this.transformResponse(await this.sanitizedOrder(ctx, order));
+    try {
+      const order = await this.loadView(ctx, {
+        reference: ctx.params.reference,
+      });
+      if (!order) return ctx.notFound();
+      return this.transformResponse(await this.sanitizedOrder(ctx, order));
+    } catch (error) {
+      if (error instanceof ReservationError)
+        return ctx.throw(error.statusCode, error.message);
+      throw error;
+    }
   },
 
   async findByPaymentId(ctx) {
-    const order = await loadPaymentView(strapi, {
-      molliePaymentId: ctx.params.paymentId,
-    });
-    if (!order) return ctx.notFound();
-    return this.transformResponse(await this.sanitizedOrder(ctx, order));
+    try {
+      const order = await this.loadView(ctx, {
+        molliePaymentId: ctx.params.paymentId,
+      });
+      if (!order) return ctx.notFound();
+      return this.transformResponse(await this.sanitizedOrder(ctx, order));
+    } catch (error) {
+      if (error instanceof ReservationError)
+        return ctx.throw(error.statusCode, error.message);
+      throw error;
+    }
   },
 
   async findPaymentView(ctx) {
-    const order = await loadPaymentView(strapi, {
-      documentId: ctx.params.documentId,
-    });
-    if (!order) return ctx.notFound();
-    return this.transformResponse(await this.sanitizedOrder(ctx, order));
+    try {
+      const order = await this.loadView(ctx, {
+        documentId: ctx.params.documentId,
+      });
+      if (!order) return ctx.notFound();
+      return this.transformResponse(await this.sanitizedOrder(ctx, order));
+    } catch (error) {
+      if (error instanceof ReservationError)
+        return ctx.throw(error.statusCode, error.message);
+      throw error;
+    }
   },
 
   async find(ctx) {

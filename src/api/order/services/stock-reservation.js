@@ -643,6 +643,9 @@ async function confirmPaidReservation(strapi, documentId) {
     };
   }
   if (order.paymentStatus === "paid") {
+    if (order.refundStatus === "refunded") {
+      return { status: "refunded", refundRequired: false };
+    }
     if (order.refundStatus === "failed") {
       return { status: "refund_failed", refundRequired: false };
     }
@@ -676,7 +679,9 @@ async function confirmPaidReservation(strapi, documentId) {
   const latest = await getOrder(strapi, documentId);
   if (latest?.paymentStatus === "paid") {
     return {
-      status: latest.fulfillmentStatus === "canceled" ? "refund_pending" : "paid",
+      status: latest.refundStatus === "refunded"
+        ? "refunded"
+        : latest.fulfillmentStatus === "canceled" ? "refund_pending" : "paid",
       refundRequired: latest.refundStatus === "pending",
     };
   }
@@ -698,7 +703,9 @@ async function confirmPaidReservation(strapi, documentId) {
   const finalOrder = await getOrder(strapi, documentId);
   if (finalOrder?.paymentStatus === "paid") {
     return {
-      status: finalOrder.fulfillmentStatus === "canceled" ? "refund_pending" : "paid",
+      status: finalOrder.refundStatus === "refunded"
+        ? "refunded"
+        : finalOrder.fulfillmentStatus === "canceled" ? "refund_pending" : "paid",
       refundRequired: finalOrder.refundStatus === "pending",
     };
   }

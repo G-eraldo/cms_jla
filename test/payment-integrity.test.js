@@ -162,7 +162,11 @@ test("a stale late confirmation cannot reset a completed refund", async () => {
   global.fetch = async () => ({ ok: true, json: async () => payment("tr_one") });
   try {
     const result = await confirmPaidReservation(strapi, "order-1");
-    assert.deepEqual(result, { refundRequired: false });
+    assert.deepEqual(result, { status: "refunded", refundRequired: false });
+    assert.deepEqual(
+      await confirmPaidReservation(strapi, "order-1"),
+      { status: "refunded", refundRequired: false },
+    );
     assert.equal(current.refundStatus, "refunded");
     assert.ok(reads >= 4);
   } finally { global.fetch = previousFetch; }

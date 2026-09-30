@@ -89,9 +89,36 @@ async function notifyPaymentAdjustment(message, options = {}) {
   }
 }
 
+async function notifyWithdrawal({ reference, orderReference }, options = {}) {
+  if (!reference || !orderReference) {
+    throw new Error('La rétractation doit avoir une référence et une commande.');
+  }
+  const fetchImpl = options.fetchImpl || fetch;
+  const headers = {
+    'Content-Type': 'text/plain; charset=utf-8',
+    Title: 'Nouvelle rétractation Maison JLA',
+    Priority: 'high',
+    Tags: 'page_facing_up'
+  };
+  if (process.env.NTFY_TOKEN) {
+    headers.Authorization = `Bearer ${process.env.NTFY_TOKEN}`;
+  }
+  const response = await fetchImpl(
+    ntfyTopicUrl(options.topicUrl || process.env.NTFY_TOPIC_URL),
+    {
+      method: 'POST',
+      headers,
+      body: `${reference} — commande ${orderReference}. Consultez la déclaration dans Strapi.`,
+      signal: options.signal || AbortSignal.timeout(5000)
+    }
+  );
+  if (!response.ok) throw new Error(`ntfy a refusé la rétractation (${response.status}).`);
+}
+
 module.exports = {
   notificationForOrder,
   notifyOrderPaid,
   notifyPaymentAdjustment,
+  notifyWithdrawal,
   ntfyTopicUrl,
 };

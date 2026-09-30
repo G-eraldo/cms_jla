@@ -2,6 +2,7 @@
 
 const { createHash, randomUUID } = require("node:crypto");
 const { createCoreController } = require("@strapi/strapi").factories;
+const { notifyWithdrawal } = require("../../order/services/ntfy");
 
 const UID = "api::withdrawal.withdrawal";
 const fields = ["reference"];
@@ -99,6 +100,13 @@ module.exports = createCoreController(UID, ({ strapi }) => ({
       });
       ctx.status = 201;
       ctx.body = publicReceipt(record, false);
+      if (process.env.NTFY_TOPIC_URL) {
+        try {
+          await notifyWithdrawal({ reference, orderReference: declaration.orderReference });
+        } catch (notificationError) {
+          strapi.log.error(`Notification de rétractation ${reference} : ${notificationError.message}`);
+        }
+      }
     } catch (error) {
       // L'index unique sur fingerprint arbitre les soumissions simultanées.
       const raced = await findByFingerprint(strapi, value);

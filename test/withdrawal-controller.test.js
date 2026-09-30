@@ -80,6 +80,29 @@ test("submit is idempotent for the same normalized declaration", async () => {
   assert.equal(second.body.data.reference, first.body.data.reference);
 });
 
+test("une nouvelle rétractation notifie ntfy une seule fois sans données personnelles", async () => {
+  const previousTopic = process.env.NTFY_TOPIC_URL;
+  const previousFetch = global.fetch;
+  process.env.NTFY_TOPIC_URL = "https://ntfy.example.test/maison-jla";
+  const messages = [];
+  global.fetch = async (_url, options) => {
+    messages.push(options.body);
+    return { ok: true };
+  };
+  try {
+    const { controller } = setup();
+    await controller.submit(context(declaration));
+    await controller.submit(context(declaration));
+    assert.equal(messages.length, 1);
+    assert.match(messages[0], /JLA-20260928-ABCDEF01/);
+    assert.doesNotMatch(messages[0], /cliente@example.fr|Claire Dupont/);
+  } finally {
+    global.fetch = previousFetch;
+    if (previousTopic === undefined) delete process.env.NTFY_TOPIC_URL;
+    else process.env.NTFY_TOPIC_URL = previousTopic;
+  }
+});
+
 test("email-status route accepts only two booleans and writes server timestamps", async () => {
   const { state, controller } = setup();
   const invalid = context({ sellerSent: true, customerSent: true, emailStatus: "sent" }, { documentId: "withdrawal-1" });

@@ -109,25 +109,37 @@ async function reconcilePayment(strapi, payment, apiKey) {
   }
 }
 
-async function reconcileKnownOrders(strapi, apiKey) {
+async function reconcileKnownOrders(strapi, apiKey, { deep = false } = {}) {
+  const filters = {
+    molliePaymentId: { $notNull: true },
+    $or: deep
+      ? [
+          { paymentStatus: "pending" },
+          { paymentStatus: "paid" },
+          { paymentStatus: "refunded" },
+        ]
+      : [
+          { paymentStatus: "pending" },
+          { paymentStatus: "paid", refundStatus: { $in: ["pending", "processing"] } },
+          { paymentStatus: "paid", refundStatus: "failed" },
+          { paymentStatus: "paid", refundStatus: "refunded" },
+          { paymentStatus: "refunded" },
+        ],
+  };
+  if (deep) {
+    strapi.log.info("Réconciliation approfondie : toutes les commandes payées sont vérifiées, sans limite d'ancienneté.");
+  }
   const orders = [];
-  for (let start = 0; start < 10000; start += 100) {
+  for (let start = 0; ; start += 100) {
     const page = await strapi.documents("api::order.order").findMany({
-      filters: { molliePaymentId: { $notNull: true }, $or: [
-        { paymentStatus: "pending" },
-        { paymentStatus: "paid", refundStatus: { $in: ["pending", "processing"] } },
-        { paymentStatus: "paid", refundStatus: "failed" },
-        { paymentStatus: "paid", refundStatus: "refunded" },
-        { paymentStatus: "refunded" },
-      ] },
+      filters,
       fields: ORDER_FIELDS,
-      sort: ["createdAt:asc"],
+      sort: ["createdAt:asc", "documentId:asc"],
       start,
       limit: 100,
     });
     orders.push(...page);
     if (page.length < 100) break;
-    if (start === 9900) throw new Error("Trop de commandes à réconcilier en un passage.");
   }
   for (const order of orders) {
     if (!order.molliePaymentId) continue;
@@ -159,7 +171,7 @@ async function reconcileRecentPayments(strapi, apiKey, lookbackMs = 60 * 60 * 10
 async function reconcilePayments(strapi, { deep = false } = {}) {
   const apiKey = process.env.MOLLIE_API_KEY;
   if (!apiKey) throw new Error("MOLLIE_API_KEY manque pour la réconciliation.");
-  await reconcileKnownOrders(strapi, apiKey);
+  await reconcileKnownOrders(strapi, apiKey, { deep });
   await reconcileRecentPayments(strapi, apiKey, deep ? 35 * 24 * 60 * 60 * 1000 : 60 * 60 * 1000);
 }
 

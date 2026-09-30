@@ -830,32 +830,59 @@ async function matchesOrderCustomerEmail(strapi, reference, email) {
 
 async function anonymizeAbandonedOrders(strapi) {
   const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-  const abandoned = await strapi.documents("api::order.order").findMany({
-    filters: {
-      paymentStatus: { $in: ["pending", "failed", "canceled", "expired"] },
-      createdAt: { $lt: cutoff },
-    },
-    fields: ["email", "paymentStatus"],
-    limit: 50,
-  });
-
+  const filters = {
+    paymentStatus: { $in: ["pending", "failed", "canceled", "expired"] },
+    createdAt: { $lt: cutoff },
+    $or: [
+      { email: { $null: true } },
+      { email: { $not: { $endsWith: "@invalid.invalid" } } },
+    ],
+  };
+  const pageSize = 50;
+  const maxPages = 10;
   let anonymized = 0;
-  for (const order of abandoned) {
-    if (String(order.email || "").endsWith("@invalid.invalid")) continue;
-    await releaseReservation(strapi, order.documentId);
-    await strapi.documents("api::order.order").update({
-      documentId: order.documentId,
-      data: {
-        firstName: "Anonymisé",
-        lastName: "Anonymisé",
-        email: `anonymized-${order.documentId}@invalid.invalid`,
-        phone: "0000000000",
-        addressLine1: "Anonymisé",
-        addressLine2: null,
-        pickupPoint: null,
-      },
+
+  for (let page = 0; page < maxPages; page += 1) {
+    const abandoned = await strapi.documents("api::order.order").findMany({
+      filters,
+      fields: ["email"],
+      sort: ["createdAt:asc", "documentId:asc"],
+      limit: pageSize,
     });
-    anonymized += 1;
+    if (!abandoned.length) break;
+
+    for (const order of abandoned) {
+      await releaseReservation(strapi, order.documentId);
+      await strapi.documents("api::order.order").update({
+        documentId: order.documentId,
+        data: {
+          firstName: "Anonymisé",
+          lastName: "Anonymisé",
+          email: `anonymized-${order.documentId}@invalid.invalid`,
+          phone: "0000000000",
+          addressLine1: "Anonymisé",
+          addressLine2: null,
+          pickupPoint: null,
+        },
+      });
+      anonymized += 1;
+    }
+  }
+
+  if (anonymized === pageSize * maxPages) {
+    const [remaining] = await strapi.documents("api::order.order").findMany({
+      filters: {
+        ...filters,
+      },
+      fields: ["email"],
+      sort: ["createdAt:asc", "documentId:asc"],
+      limit: 1,
+    });
+    if (remaining) {
+      strapi.log.error(
+        `Anonymisation des commandes abandonnées incomplète : limite de ${pageSize * maxPages} atteinte.`,
+      );
+    }
   }
   return anonymized;
 }

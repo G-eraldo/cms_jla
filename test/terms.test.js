@@ -2,7 +2,7 @@
 
 const assert = require("node:assert/strict");
 const test = require("node:test");
-const { TERMS_SECTIONS, TERMS_VERSION, termsHash, termsSnapshot } = require("../src/api/order/services/terms");
+const { TERMS_SECTIONS, TERMS_VERSION, createTermsPdf, termsHash, termsSnapshot } = require("../src/api/order/services/terms");
 
 test("l'encadré de garantie reprend le modèle D. 211-2", () => {
   const boxed = TERMS_SECTIONS.find((section) => section.boxed);
@@ -13,4 +13,12 @@ test("l'encadré de garantie reprend le modèle D. 211-2", () => {
   assert.match(text, /1641 à 1649/);
   assert.equal(termsHash(), termsHash());
   assert.equal(termsSnapshot().sections[0].paragraphs[0].includes("RCS Amiens"), true);
+});
+
+test("les CGV jointes restent identiques lors d'une relance d'e-mail", async () => {
+  const snapshot = termsSnapshot();
+  const first = await createTermsPdf(snapshot);
+  await new Promise((resolve) => setTimeout(resolve, 1100));
+  const retry = await createTermsPdf(snapshot);
+  assert.ok(first.equals(retry));
 });

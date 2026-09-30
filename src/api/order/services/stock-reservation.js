@@ -6,6 +6,7 @@ const PAYMENT_VIEW_FIELDS = [
   "reference",
   "molliePaymentId",
   "paymentStatus",
+  "fulfillmentStatus",
   "confirmationEmailSentAt",
   "refundStatus",
   "refundRequestedAt",
@@ -13,6 +14,7 @@ const PAYMENT_VIEW_FIELDS = [
   "checkoutKey",
 ];
 const { termsHash, termsSnapshot, TERMS_VERSION } = require("./terms");
+const { notifyPaymentAdjustment } = require("./ntfy");
 const {
   PromoCodeError,
   normalizeCode,
@@ -52,18 +54,45 @@ async function loadProductStockRows(strapi, trx, productDocumentId) {
     .select("id", "stock", "published_at");
 }
 
-async function adjustPublishedStock(strapi, trx, productDocumentId, delta) {
+async function adjustPublishedStock(
+  strapi,
+  trx,
+  productDocumentId,
+  delta,
+  { requirePublished = delta < 0 } = {},
+) {
   const productRows = await loadProductStockRows(
     strapi,
     trx,
     productDocumentId,
   );
   const publishedRows = productRows.filter((row) => row.published_at);
-  if (!publishedRows.length) {
+  if (requirePublished && !publishedRows.length) {
     throw new ReservationError(
       "Le stock d’un bijou vient d’être mis à jour. Veuillez actualiser votre panier.",
       409,
     );
+  }
+
+  // A product can be unpublished while a checkout reservation is active.
+  // Return the reserved units to its draft row so a later republish does not
+  // resurrect an artificially reduced stock count. A deleted product has no
+  // stock left to restore, but must not prevent the reservation being closed.
+  if (delta > 0 && publishedRows.length === 0) {
+    const draftIds = productRows.map((row) => row.id);
+    if (!draftIds.length) return;
+    const changed = await strapi.db
+      .getConnection("products")
+      .transacting(trx)
+      .whereIn("id", draftIds)
+      .increment("stock", delta);
+    if (changed !== draftIds.length) {
+      throw new ReservationError(
+        "Le stock d’un bijou vient d’être mis à jour. Veuillez actualiser votre panier.",
+        409,
+      );
+    }
+    return;
   }
 
   if (delta < 0) {
@@ -253,7 +282,13 @@ async function releaseExpiredReservations(strapi) {
     .where({ payment_status: "pending" });
 
   for (const order of expired) {
-    await releaseReservation(strapi, order.document_id);
+    try {
+      await releaseReservation(strapi, order.document_id);
+    } catch (error) {
+      strapi.log.error(
+        `Échec de la libération de la réservation ${order.document_id} : ${error.message}`,
+      );
+    }
   }
 }
 
@@ -493,12 +528,128 @@ async function verifyMolliePaid(order) {
   return payment;
 }
 
+function paymentReversalAmounts(payment, order) {
+  const currency = payment.amount?.currency;
+  if (!currency || currency !== order.currency) return null;
+  if (
+    (payment.amountRefunded && payment.amountRefunded.currency !== currency) ||
+    (payment.amountChargedBack && payment.amountChargedBack.currency !== currency)
+  ) return null;
+  const refunded = payment.amountRefunded
+    ? cents(payment.amountRefunded.value)
+    : 0;
+  const chargedBack = payment.amountChargedBack
+    ? cents(payment.amountChargedBack.value)
+    : 0;
+  const total = cents(order.totalAmount);
+  if (refunded === null || chargedBack === null || total === null) return null;
+  return { refunded, chargedBack, total, reversed: refunded + chargedBack };
+}
+
+async function recordExternalPaymentReversal(strapi, order, payment) {
+  const amounts = paymentReversalAmounts(payment, order);
+  if (!amounts || amounts.reversed <= 0) return false;
+
+  // An automatic refund already has a durable reconciliation path. Preserve
+  // its state unless Mollie reports a chargeback, which needs manual review.
+  if (amounts.chargedBack === 0 && ["pending", "processing"].includes(order.refundStatus))
+    return false;
+
+  const fullReversal = amounts.reversed >= amounts.total;
+  const refundStatus =
+    amounts.chargedBack === 0 && amounts.refunded >= amounts.total
+      ? "refunded"
+      : "failed";
+  const paymentStatus = fullReversal ? "refunded" : "paid";
+  if (order.paymentStatus === paymentStatus && order.refundStatus === refundStatus) {
+    return true;
+  }
+  const update = {
+    payment_status: paymentStatus,
+    refund_status: refundStatus,
+    refund_requested_at: nowIso(),
+  };
+  const query = strapi.db
+    .getConnection("orders")
+    .where({ document_id: order.documentId, mollie_payment_id: payment.id })
+    .whereIn("payment_status", ["pending", "failed", "canceled", "expired", "paid", "refunded"]);
+  const cancelFulfillment =
+    fullReversal || !["paid", "refunded"].includes(order.paymentStatus);
+  if (fullReversal) {
+    query.where(function () {
+      this.where("payment_status", "!=", "refunded").orWhere(
+        "refund_status",
+        "!=",
+        refundStatus,
+      );
+    });
+  } else {
+    query.whereNot({ refund_status: "failed" });
+  }
+  if (cancelFulfillment) update.fulfillment_status = "canceled";
+  const notice = `ACTION REQUISE - ${order.reference} : Mollie signale ${formatCents(amounts.reversed)} reverses (${formatCents(amounts.refunded)} rembourses, ${formatCents(amounts.chargedBack)} contestes). Verifiez la commande et la preparation/expedition.`;
+  const changed = await query.update(update);
+  if (!changed) return true;
+  if (cancelFulfillment) {
+    await strapi.db
+      .getConnection("orders")
+      .where({ document_id: order.documentId })
+      .whereIn("fulfillment_status", ["pending", "processing"])
+      .update({ fulfillment_status: "canceled" });
+  }
+  try {
+    // Persist financial and fulfillment state before contacting ntfy.
+    await notifyPaymentAdjustment(notice);
+  } catch (error) {
+    strapi.log.error(
+      `Alerte de rapprochement manquante pour ${order.reference} : ${error.message}. Vérification manuelle des journaux requise.`,
+    );
+  }
+
+  return true;
+}
+
+function formatCents(value) {
+  return new Intl.NumberFormat("fr-FR", {
+    style: "currency",
+    currency: "EUR",
+  }).format(value / 100);
+}
+
 async function confirmPaidReservation(strapi, documentId) {
   const order = await getOrder(strapi, documentId);
   if (!order) throw new ReservationError("Commande introuvable.", 404);
   const payment = await verifyMolliePaid(order);
+  const reversal = paymentReversalAmounts(payment, order);
+  if (reversal?.reversed > 0) {
+    if (!["paid", "refunded"].includes(order.paymentStatus)) {
+      await releaseReservation(strapi, documentId);
+    }
+    if (
+      reversal.chargedBack === 0 &&
+      ["pending", "processing"].includes(order.refundStatus)
+    ) {
+      return { status: "refund_pending", refundRequired: order.refundStatus === "pending" };
+    }
+    await recordExternalPaymentReversal(strapi, order, payment);
+    return {
+      status:
+        reversal.chargedBack > 0
+          ? "refund_review"
+          : reversal.reversed >= reversal.total
+            ? "refunded"
+            : "refund_review",
+      refundRequired: false,
+    };
+  }
   if (order.paymentStatus === "paid") {
-    return { refundRequired: order.refundStatus === "pending" };
+    if (order.refundStatus === "failed") {
+      return { status: "refund_failed", refundRequired: false };
+    }
+    return {
+      status: order.fulfillmentStatus === "canceled" ? "refund_pending" : "paid",
+      refundRequired: order.refundStatus === "pending",
+    };
   }
   const paidAtIso = new Date(
     payment.paidAt || Date.now(),
@@ -520,11 +671,14 @@ async function confirmPaidReservation(strapi, documentId) {
       }),
   );
 
-  if (claimed === 1) return { refundRequired: false };
+  if (claimed === 1) return { status: "paid", refundRequired: false };
 
   const latest = await getOrder(strapi, documentId);
   if (latest?.paymentStatus === "paid") {
-    return { refundRequired: latest.refundStatus === "pending" };
+    return {
+      status: latest.fulfillmentStatus === "canceled" ? "refund_pending" : "paid",
+      refundRequired: latest.refundStatus === "pending",
+    };
   }
 
   await releaseReservation(strapi, documentId);
@@ -539,10 +693,14 @@ async function confirmPaidReservation(strapi, documentId) {
       fulfillment_status: "canceled",
       refund_status: "pending",
     });
-  if (refundClaimed === 1) return { refundRequired: true };
+  if (refundClaimed === 1)
+    return { status: "refund_pending", refundRequired: true };
   const finalOrder = await getOrder(strapi, documentId);
   if (finalOrder?.paymentStatus === "paid") {
-    return { refundRequired: finalOrder.refundStatus === "pending" };
+    return {
+      status: finalOrder.fulfillmentStatus === "canceled" ? "refund_pending" : "paid",
+      refundRequired: finalOrder.refundStatus === "pending",
+    };
   }
   throw new ReservationError("La confirmation du paiement doit être retentée.", 503);
 }
@@ -643,7 +801,7 @@ async function recordRefund(strapi, documentId, refund) {
       : ["failed", "canceled"].includes(refund?.status)
         ? "failed"
         : "processing";
-  await strapi.db
+  const changed = await strapi.db
     .getConnection("orders")
     .where({ document_id: documentId, refund_status: "processing" })
     .update({
@@ -651,13 +809,39 @@ async function recordRefund(strapi, documentId, refund) {
       refund_requested_at: nowIso(),
       refund_status: status,
     });
+  if (changed && status === "failed") {
+    const order = await getOrder(strapi, documentId);
+    if (order) {
+      try {
+        await notifyPaymentAdjustment(
+          `ACTION REQUISE — Le remboursement Mollie de la commande ${order.reference} a échoué. Vérifiez le statut dans Mollie et organisez le remboursement manuellement si nécessaire.`,
+        );
+      } catch (error) {
+        strapi.log.error(
+          `Alerte de remboursement manquante pour ${order.reference} : ${error.message}`,
+        );
+      }
+    }
+  }
 }
 
 async function recordRefundFailure(strapi, documentId) {
-  await strapi.db
+  const changed = await strapi.db
     .getConnection("orders")
     .where({ document_id: documentId, refund_status: "processing" })
     .update({ refund_status: "failed" });
+  if (!changed) return;
+  const order = await getOrder(strapi, documentId);
+  if (!order) return;
+  try {
+    await notifyPaymentAdjustment(
+      `ACTION REQUISE — Le remboursement Mollie de la commande ${order.reference} reste à vérifier. Contrôlez dans Mollie si les fonds sont partis avant toute nouvelle demande.`,
+    );
+  } catch (error) {
+    strapi.log.error(
+      `Alerte de remboursement manquante pour ${order.reference} : ${error.message}`,
+    );
+  }
 }
 
 module.exports = {
@@ -673,6 +857,7 @@ module.exports = {
   recordRefund,
   recordRefundFailure,
   releaseExpiredReservations,
+  recordExternalPaymentReversal,
   releaseReservation,
   reserveOrder,
   verifyMolliePayment,

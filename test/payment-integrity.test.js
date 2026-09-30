@@ -5,6 +5,7 @@ const test = require("node:test");
 const {
   attachMolliePayment,
   claimRefund,
+  confirmPaidReservation,
   recordPaymentOutcome,
   recordRefund,
   verifyMolliePayment,
@@ -122,7 +123,7 @@ test("scheduled reconciliation resumes an already claimed refund", async () => {
   const previousFetch = global.fetch;
   global.fetch = async (url) => ({
     ok: true,
-    json: async () => url.includes("/refunds")
+    json: async () => String(url).includes("/refunds")
       ? { _embedded: { refunds: [{
           id: "re_existing", status: "refunded", amount: { currency: "EUR", value: "12.30" },
           metadata: { orderDocumentId: "order-1" },
@@ -132,5 +133,37 @@ test("scheduled reconciliation resumes an already claimed refund", async () => {
   try {
     await reconcilePayment(fakeStrapi(order), payment("tr_one"), "test-placeholder");
     assert.equal(order.refundStatus, "refunded");
+  } finally { global.fetch = previousFetch; }
+});
+
+test("a stale late confirmation cannot reset a completed refund", async () => {
+  process.env.MOLLIE_API_KEY = "test-placeholder";
+  const current = {
+    documentId: "order-1", molliePaymentId: "tr_one", paymentStatus: "paid",
+    refundStatus: "refunded", stockDecrementedAt: null,
+    totalAmount: "12.30", currency: "EUR",
+  };
+  let reads = 0;
+  const stale = { ...current, paymentStatus: "expired", refundStatus: "not_required" };
+  const strapi = {
+    documents: () => ({ findOne: async () => ({ ...(++reads <= 2 ? stale : current) }) }),
+    db: {
+      transaction: async (callback) => callback({ trx: {} }),
+      getConnection: () => ({
+        transacting() { return this; },
+        where() { return this; },
+        whereIn() { return this; },
+        whereNull() { return this; },
+        update: async () => 0,
+      }),
+    },
+  };
+  const previousFetch = global.fetch;
+  global.fetch = async () => ({ ok: true, json: async () => payment("tr_one") });
+  try {
+    const result = await confirmPaidReservation(strapi, "order-1");
+    assert.deepEqual(result, { refundRequired: false });
+    assert.equal(current.refundStatus, "refunded");
+    assert.ok(reads >= 4);
   } finally { global.fetch = previousFetch; }
 });

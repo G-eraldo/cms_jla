@@ -7,6 +7,7 @@ const {
   recordPaymentOutcome,
   recordRefund,
   releaseReservation,
+  recordExternalPaymentReversal,
   verifyMolliePayment,
 } = require("./stock-reservation");
 
@@ -93,6 +94,10 @@ async function reconcilePayment(strapi, payment, apiKey) {
   }
   const verified = await verifyMolliePayment(order, payment.id);
   if (verified.status === "paid") {
+    if (["paid", "refunded"].includes(order.paymentStatus)) {
+      const reversal = await recordExternalPaymentReversal(strapi, order, verified);
+      if (reversal) return;
+    }
     await confirmPaidReservation(strapi, documentId);
     order = await findOrder(strapi, documentId);
     if (["pending", "processing"].includes(order.refundStatus)) {
@@ -111,6 +116,8 @@ async function reconcileKnownOrders(strapi, apiKey) {
       filters: { molliePaymentId: { $notNull: true }, $or: [
         { paymentStatus: "pending" },
         { paymentStatus: "paid", refundStatus: { $in: ["pending", "processing"] } },
+        { paymentStatus: "paid", refundStatus: "failed" },
+        { paymentStatus: "refunded" },
       ] },
       fields: ORDER_FIELDS,
       sort: ["createdAt:asc"],

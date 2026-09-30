@@ -64,4 +64,34 @@ async function notifyOrderPaid(order, options = {}) {
   }
 }
 
-module.exports = { notificationForOrder, notifyOrderPaid, ntfyTopicUrl };
+async function notifyPaymentAdjustment(message, options = {}) {
+  const fetchImpl = options.fetchImpl || fetch;
+  const headers = {
+    "Content-Type": "text/plain; charset=utf-8",
+    Title: "Action requise - paiement Maison JLA",
+    Priority: "urgent",
+    Tags: "warning,money_with_wings",
+  };
+  if (process.env.NTFY_TOKEN) {
+    headers.Authorization = `Bearer ${process.env.NTFY_TOKEN}`;
+  }
+  const response = await fetchImpl(
+    ntfyTopicUrl(options.topicUrl || process.env.NTFY_TOPIC_URL),
+    {
+      method: "POST",
+      headers,
+      body: String(message),
+      signal: options.signal || AbortSignal.timeout(5000),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(`ntfy a refusé l’alerte (${response.status}).`);
+  }
+}
+
+module.exports = {
+  notificationForOrder,
+  notifyOrderPaid,
+  notifyPaymentAdjustment,
+  ntfyTopicUrl,
+};

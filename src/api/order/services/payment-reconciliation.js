@@ -117,6 +117,7 @@ async function reconcileKnownOrders(strapi, apiKey) {
         { paymentStatus: "pending" },
         { paymentStatus: "paid", refundStatus: { $in: ["pending", "processing"] } },
         { paymentStatus: "paid", refundStatus: "failed" },
+        { paymentStatus: "paid", refundStatus: "refunded" },
         { paymentStatus: "refunded" },
       ] },
       fields: ORDER_FIELDS,

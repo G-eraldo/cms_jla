@@ -15,6 +15,7 @@ const PAYMENT_VIEW_FIELDS = [
 ];
 const { termsHash, termsSnapshot, TERMS_VERSION } = require("./terms");
 const { notifyPaymentAdjustment } = require("./ntfy");
+const { notifyRefundCustomer } = require("./refund-email");
 const {
   PromoCodeError,
   normalizeCode,
@@ -501,7 +502,11 @@ async function verifyMolliePayment(order, paymentId = order.molliePaymentId) {
   const payment = await response.json();
   let metadata = payment.metadata;
   if (typeof metadata === "string") {
-    try { metadata = JSON.parse(metadata); } catch { metadata = null; }
+    try {
+      metadata = JSON.parse(metadata);
+    } catch {
+      metadata = null;
+    }
   }
   const metadataDocumentId =
     metadata?.orderDocumentId || metadata?.order_document_id;
@@ -533,8 +538,10 @@ function paymentReversalAmounts(payment, order) {
   if (!currency || currency !== order.currency) return null;
   if (
     (payment.amountRefunded && payment.amountRefunded.currency !== currency) ||
-    (payment.amountChargedBack && payment.amountChargedBack.currency !== currency)
-  ) return null;
+    (payment.amountChargedBack &&
+      payment.amountChargedBack.currency !== currency)
+  )
+    return null;
   const refunded = payment.amountRefunded
     ? cents(payment.amountRefunded.value)
     : 0;
@@ -550,10 +557,31 @@ async function recordExternalPaymentReversal(strapi, order, payment) {
   const amounts = paymentReversalAmounts(payment, order);
   if (!amounts || amounts.reversed <= 0) return false;
 
+  async function sendRefundNotice() {
+    if (amounts.refunded <= 0) return;
+    try {
+      await notifyRefundCustomer(
+        strapi,
+        order.documentId,
+        amounts.refunded,
+        order.currency,
+      );
+    } catch (error) {
+      strapi.log.error(
+        `E-mail de remboursement ${order.reference} : ${error.message}`,
+      );
+    }
+  }
+
   // An automatic refund already has a durable reconciliation path. Preserve
   // its state unless Mollie reports a chargeback, which needs manual review.
-  if (amounts.chargedBack === 0 && ["pending", "processing"].includes(order.refundStatus))
+  if (
+    amounts.chargedBack === 0 &&
+    ["pending", "processing"].includes(order.refundStatus)
+  ) {
+    await sendRefundNotice();
     return false;
+  }
 
   const fullReversal = amounts.reversed >= amounts.total;
   const refundStatus =
@@ -561,7 +589,11 @@ async function recordExternalPaymentReversal(strapi, order, payment) {
       ? "refunded"
       : "failed";
   const paymentStatus = fullReversal ? "refunded" : "paid";
-  if (order.paymentStatus === paymentStatus && order.refundStatus === refundStatus) {
+  if (
+    order.paymentStatus === paymentStatus &&
+    order.refundStatus === refundStatus
+  ) {
+    await sendRefundNotice();
     return true;
   }
   const update = {
@@ -572,7 +604,14 @@ async function recordExternalPaymentReversal(strapi, order, payment) {
   const query = strapi.db
     .getConnection("orders")
     .where({ document_id: order.documentId, mollie_payment_id: payment.id })
-    .whereIn("payment_status", ["pending", "failed", "canceled", "expired", "paid", "refunded"]);
+    .whereIn("payment_status", [
+      "pending",
+      "failed",
+      "canceled",
+      "expired",
+      "paid",
+      "refunded",
+    ]);
   const cancelFulfillment =
     fullReversal || !["paid", "refunded"].includes(order.paymentStatus);
   if (fullReversal) {
@@ -589,7 +628,10 @@ async function recordExternalPaymentReversal(strapi, order, payment) {
   if (cancelFulfillment) update.fulfillment_status = "canceled";
   const notice = `ACTION REQUISE - ${order.reference} : Mollie signale ${formatCents(amounts.reversed)} reverses (${formatCents(amounts.refunded)} rembourses, ${formatCents(amounts.chargedBack)} contestes). Verifiez la commande et la preparation/expedition.`;
   const changed = await query.update(update);
-  if (!changed) return true;
+  if (!changed) {
+    await sendRefundNotice();
+    return true;
+  }
   if (cancelFulfillment) {
     await strapi.db
       .getConnection("orders")
@@ -605,6 +647,8 @@ async function recordExternalPaymentReversal(strapi, order, payment) {
       `Alerte de rapprochement manquante pour ${order.reference} : ${error.message}. Vérification manuelle des journaux requise.`,
     );
   }
+
+  await sendRefundNotice();
 
   return true;
 }
@@ -629,7 +673,10 @@ async function confirmPaidReservation(strapi, documentId) {
       reversal.chargedBack === 0 &&
       ["pending", "processing"].includes(order.refundStatus)
     ) {
-      return { status: "refund_pending", refundRequired: order.refundStatus === "pending" };
+      return {
+        status: "refund_pending",
+        refundRequired: order.refundStatus === "pending",
+      };
     }
     await recordExternalPaymentReversal(strapi, order, payment);
     return {
@@ -650,13 +697,12 @@ async function confirmPaidReservation(strapi, documentId) {
       return { status: "refund_failed", refundRequired: false };
     }
     return {
-      status: order.fulfillmentStatus === "canceled" ? "refund_pending" : "paid",
+      status:
+        order.fulfillmentStatus === "canceled" ? "refund_pending" : "paid",
       refundRequired: order.refundStatus === "pending",
     };
   }
-  const paidAtIso = new Date(
-    payment.paidAt || Date.now(),
-  ).toISOString();
+  const paidAtIso = new Date(payment.paidAt || Date.now()).toISOString();
   const confirmedAt = nowIso();
 
   const claimed = await strapi.db.transaction(async ({ trx }) =>
@@ -679,9 +725,12 @@ async function confirmPaidReservation(strapi, documentId) {
   const latest = await getOrder(strapi, documentId);
   if (latest?.paymentStatus === "paid") {
     return {
-      status: latest.refundStatus === "refunded"
-        ? "refunded"
-        : latest.fulfillmentStatus === "canceled" ? "refund_pending" : "paid",
+      status:
+        latest.refundStatus === "refunded"
+          ? "refunded"
+          : latest.fulfillmentStatus === "canceled"
+            ? "refund_pending"
+            : "paid",
       refundRequired: latest.refundStatus === "pending",
     };
   }
@@ -703,13 +752,19 @@ async function confirmPaidReservation(strapi, documentId) {
   const finalOrder = await getOrder(strapi, documentId);
   if (finalOrder?.paymentStatus === "paid") {
     return {
-      status: finalOrder.refundStatus === "refunded"
-        ? "refunded"
-        : finalOrder.fulfillmentStatus === "canceled" ? "refund_pending" : "paid",
+      status:
+        finalOrder.refundStatus === "refunded"
+          ? "refunded"
+          : finalOrder.fulfillmentStatus === "canceled"
+            ? "refund_pending"
+            : "paid",
       refundRequired: finalOrder.refundStatus === "pending",
     };
   }
-  throw new ReservationError("La confirmation du paiement doit être retentée.", 503);
+  throw new ReservationError(
+    "La confirmation du paiement doit être retentée.",
+    503,
+  );
 }
 
 async function recordPaymentOutcome(strapi, documentId, paymentStatus) {
@@ -726,7 +781,11 @@ async function recordPaymentOutcome(strapi, documentId, paymentStatus) {
 async function claimRefund(strapi, documentId) {
   const claimed = await strapi.db
     .getConnection("orders")
-    .where({ document_id: documentId, payment_status: "paid", refund_status: "pending" })
+    .where({
+      document_id: documentId,
+      payment_status: "paid",
+      refund_status: "pending",
+    })
     .update({ refund_status: "processing", refund_requested_at: nowIso() });
   return claimed === 1;
 }
@@ -816,6 +875,18 @@ async function recordRefund(strapi, documentId, refund) {
       refund_requested_at: nowIso(),
       refund_status: status,
     });
+  if (changed && status === "refunded" && refund?.amount?.currency === "EUR") {
+    const refundedCents = cents(refund.amount.value);
+    if (refundedCents !== null) {
+      try {
+        await notifyRefundCustomer(strapi, documentId, refundedCents, "EUR");
+      } catch (error) {
+        strapi.log.error(
+          `E-mail de remboursement ${documentId} : ${error.message}`,
+        );
+      }
+    }
+  }
   if (changed && status === "failed") {
     const order = await getOrder(strapi, documentId);
     if (order) {

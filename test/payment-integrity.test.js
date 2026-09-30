@@ -17,8 +17,17 @@ function payment(id, value = "12.30", documentId = "order-1") {
 }
 
 function fakeStrapi(order) {
+  const notices = new Map();
   return {
-    documents: () => ({ findOne: async () => ({ ...order }) }),
+    documents: () => ({ findOne: async () => ({
+      firstName: "Claire", email: "claire@example.fr", reference: "JLA-TEST",
+      totalAmount: "12.30", currency: "EUR", ...order
+    }) }),
+    store: ({ key }) => ({
+      get: async () => notices.get(key),
+      set: async ({ value }) => { notices.set(key, value); },
+    }),
+    plugin: () => ({ service: () => ({ send: async () => ({ id: "email-test" }) }) }),
     db: { getConnection: () => {
       const conditions = [];
       return {

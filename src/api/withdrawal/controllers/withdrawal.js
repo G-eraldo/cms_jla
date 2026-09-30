@@ -75,15 +75,6 @@ function publicReceipt(record, duplicate) {
 }
 
 module.exports = createCoreController(UID, ({ strapi }) => ({
-  async findDuplicate(ctx) {
-    const value = ctx.request.body?.data?.fingerprint;
-    if (typeof value !== "string" || !/^[a-f0-9]{64}$/.test(value)) {
-      return ctx.badRequest("Empreinte de déclaration invalide.");
-    }
-    const record = await findByFingerprint(strapi, value);
-    ctx.body = record ? publicReceipt(record, true) : { data: null };
-  },
-
   async submit(ctx) {
     const declaration = normalizedDeclaration(ctx.request.body?.data);
     if (!declaration) return ctx.badRequest("Déclaration invalide.");

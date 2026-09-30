@@ -4,12 +4,6 @@ module.exports = {
   routes: [
     {
       method: "POST",
-      path: "/withdrawals/find-duplicate",
-      handler: "withdrawal.findDuplicate",
-      config: { policies: [], middlewares: [] },
-    },
-    {
-      method: "POST",
       path: "/withdrawals/submit",
       handler: "withdrawal.submit",
       config: { policies: [], middlewares: [] },

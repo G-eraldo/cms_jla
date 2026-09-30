@@ -458,6 +458,12 @@ export interface ApiOrderOrder extends Struct.CollectionTypeSchema {
     addressLine1: Schema.Attribute.String & Schema.Attribute.Required;
     addressLine2: Schema.Attribute.String;
     carrier: Schema.Attribute.String;
+    checkoutKey: Schema.Attribute.String &
+      Schema.Attribute.Private &
+      Schema.Attribute.Unique &
+      Schema.Attribute.SetMinMaxLength<{
+        maxLength: 64;
+      }>;
     city: Schema.Attribute.String & Schema.Attribute.Required;
     confirmationEmailSentAt: Schema.Attribute.DateTime;
     country: Schema.Attribute.String &
@@ -471,6 +477,15 @@ export interface ApiOrderOrder extends Struct.CollectionTypeSchema {
       Schema.Attribute.DefaultTo<'EUR'>;
     deliveryMethod: Schema.Attribute.Enumeration<['home', 'pickup']> &
       Schema.Attribute.Required;
+    discountAmount: Schema.Attribute.Decimal &
+      Schema.Attribute.Required &
+      Schema.Attribute.SetMinMax<
+        {
+          min: 0;
+        },
+        number
+      > &
+      Schema.Attribute.DefaultTo<0>;
     email: Schema.Attribute.Email & Schema.Attribute.Required;
     firstName: Schema.Attribute.String & Schema.Attribute.Required;
     fulfillmentStatus: Schema.Attribute.Enumeration<
@@ -478,6 +493,30 @@ export interface ApiOrderOrder extends Struct.CollectionTypeSchema {
     > &
       Schema.Attribute.Required &
       Schema.Attribute.DefaultTo<'pending'>;
+    invoiceArchivedAt: Schema.Attribute.DateTime & Schema.Attribute.Private;
+    invoiceArchiveKey: Schema.Attribute.String &
+      Schema.Attribute.Private &
+      Schema.Attribute.SetMinMaxLength<{
+        maxLength: 255;
+      }>;
+    invoiceHash: Schema.Attribute.String &
+      Schema.Attribute.Private &
+      Schema.Attribute.SetMinMaxLength<{
+        maxLength: 64;
+      }>;
+    invoiceIssuedAt: Schema.Attribute.DateTime & Schema.Attribute.Private;
+    invoiceNumber: Schema.Attribute.String &
+      Schema.Attribute.Private &
+      Schema.Attribute.Unique &
+      Schema.Attribute.SetMinMaxLength<{
+        maxLength: 40;
+      }>;
+    invoicePdfHash: Schema.Attribute.String &
+      Schema.Attribute.Private &
+      Schema.Attribute.SetMinMaxLength<{
+        maxLength: 64;
+      }>;
+    invoiceSnapshot: Schema.Attribute.JSON & Schema.Attribute.Private;
     items: Schema.Attribute.Component<'commerce.order-line', true> &
       Schema.Attribute.Required &
       Schema.Attribute.SetMinMax<
@@ -486,11 +525,14 @@ export interface ApiOrderOrder extends Struct.CollectionTypeSchema {
         },
         number
       >;
+    lastCarrierEventAt: Schema.Attribute.DateTime;
     lastName: Schema.Attribute.String & Schema.Attribute.Required;
     locale: Schema.Attribute.String & Schema.Attribute.Private;
     localizations: Schema.Attribute.Relation<'oneToMany', 'api::order.order'> &
       Schema.Attribute.Private;
     molliePaymentId: Schema.Attribute.String & Schema.Attribute.Unique;
+    mollieRefundId: Schema.Attribute.String & Schema.Attribute.Unique;
+    ntfyNotificationSentAt: Schema.Attribute.DateTime;
     paidAt: Schema.Attribute.DateTime;
     paymentStatus: Schema.Attribute.Enumeration<
       ['pending', 'paid', 'failed', 'canceled', 'expired', 'refunded']
@@ -501,10 +543,29 @@ export interface ApiOrderOrder extends Struct.CollectionTypeSchema {
     pickupPoint: Schema.Attribute.String;
     pickupPointId: Schema.Attribute.String;
     postalCode: Schema.Attribute.String & Schema.Attribute.Required;
+    promoCode: Schema.Attribute.String &
+      Schema.Attribute.SetMinMaxLength<{
+        maxLength: 40;
+      }>;
+    promoKind: Schema.Attribute.Enumeration<['percentage', 'fixed']>;
+    promoValue: Schema.Attribute.Decimal &
+      Schema.Attribute.SetMinMax<
+        {
+          min: 0;
+        },
+        number
+      >;
     publishedAt: Schema.Attribute.DateTime;
     reference: Schema.Attribute.String &
       Schema.Attribute.Required &
       Schema.Attribute.Unique;
+    refundRequestedAt: Schema.Attribute.DateTime;
+    refundStatus: Schema.Attribute.Enumeration<
+      ['not_required', 'pending', 'processing', 'refunded', 'failed']
+    > &
+      Schema.Attribute.Required &
+      Schema.Attribute.DefaultTo<'not_required'>;
+    sendcloudImportedAt: Schema.Attribute.DateTime & Schema.Attribute.Private;
     shippedAt: Schema.Attribute.DateTime;
     shippingAmount: Schema.Attribute.Decimal &
       Schema.Attribute.Required &
@@ -516,6 +577,9 @@ export interface ApiOrderOrder extends Struct.CollectionTypeSchema {
       > &
       Schema.Attribute.DefaultTo<0>;
     stockDecrementedAt: Schema.Attribute.DateTime;
+    stockReservationExpiresAt: Schema.Attribute.DateTime;
+    stockReservationReleasedAt: Schema.Attribute.DateTime;
+    stockReservedAt: Schema.Attribute.DateTime;
     subtotalAmount: Schema.Attribute.Decimal &
       Schema.Attribute.Required &
       Schema.Attribute.SetMinMax<
@@ -524,6 +588,18 @@ export interface ApiOrderOrder extends Struct.CollectionTypeSchema {
         },
         number
       >;
+    termsAcceptedAt: Schema.Attribute.DateTime & Schema.Attribute.Private;
+    termsHash: Schema.Attribute.String &
+      Schema.Attribute.Private &
+      Schema.Attribute.SetMinMaxLength<{
+        maxLength: 64;
+      }>;
+    termsSnapshot: Schema.Attribute.JSON & Schema.Attribute.Private;
+    termsVersion: Schema.Attribute.String &
+      Schema.Attribute.Private &
+      Schema.Attribute.SetMinMaxLength<{
+        maxLength: 100;
+      }>;
     totalAmount: Schema.Attribute.Decimal &
       Schema.Attribute.Required &
       Schema.Attribute.SetMinMax<
@@ -553,7 +629,7 @@ export interface ApiProductProduct extends Struct.CollectionTypeSchema {
   };
   attributes: {
     category: Schema.Attribute.Enumeration<
-      ['Colliers', 'Boucles', 'Bracelets']
+      ['Colliers', 'Boucles', 'Bracelets', 'Bagues']
     >;
     createdAt: Schema.Attribute.DateTime;
     createdBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
@@ -571,6 +647,11 @@ export interface ApiProductProduct extends Struct.CollectionTypeSchema {
       Schema.Attribute.Private;
     name: Schema.Attribute.String & Schema.Attribute.Required;
     price: Schema.Attribute.Decimal & Schema.Attribute.Required;
+    productSafety: Schema.Attribute.Component<
+      'commerce.product-safety',
+      false
+    > &
+      Schema.Attribute.Required;
     publishedAt: Schema.Attribute.DateTime;
     slug: Schema.Attribute.UID<'name'> & Schema.Attribute.Required;
     stock: Schema.Attribute.Integer &
@@ -582,6 +663,124 @@ export interface ApiProductProduct extends Struct.CollectionTypeSchema {
         number
       > &
       Schema.Attribute.DefaultTo<0>;
+    updatedAt: Schema.Attribute.DateTime;
+    updatedBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
+      Schema.Attribute.Private;
+  };
+}
+
+export interface ApiPromoCodePromoCode extends Struct.CollectionTypeSchema {
+  collectionName: 'promo_codes';
+  info: {
+    displayName: 'Code promo';
+    pluralName: 'promo-codes';
+    singularName: 'promo-code';
+  };
+  options: {
+    draftAndPublish: true;
+  };
+  attributes: {
+    code: Schema.Attribute.String &
+      Schema.Attribute.Required &
+      Schema.Attribute.Unique &
+      Schema.Attribute.SetMinMaxLength<{
+        maxLength: 40;
+        minLength: 2;
+      }>;
+    createdAt: Schema.Attribute.DateTime;
+    createdBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
+      Schema.Attribute.Private;
+    endsAt: Schema.Attribute.DateTime & Schema.Attribute.Required;
+    kind: Schema.Attribute.Enumeration<['percentage', 'fixed']> &
+      Schema.Attribute.Required;
+    locale: Schema.Attribute.String & Schema.Attribute.Private;
+    localizations: Schema.Attribute.Relation<
+      'oneToMany',
+      'api::promo-code.promo-code'
+    > &
+      Schema.Attribute.Private;
+    publishedAt: Schema.Attribute.DateTime;
+    updatedAt: Schema.Attribute.DateTime;
+    updatedBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
+      Schema.Attribute.Private;
+    value: Schema.Attribute.Decimal &
+      Schema.Attribute.Required &
+      Schema.Attribute.SetMinMax<
+        {
+          min: 0.01;
+        },
+        number
+      >;
+  };
+}
+
+export interface ApiWithdrawalWithdrawal extends Struct.CollectionTypeSchema {
+  collectionName: 'withdrawals';
+  info: {
+    description: 'D\u00E9clarations de r\u00E9tractation re\u00E7ues depuis le formulaire public';
+    displayName: 'R\u00E9tractation';
+    pluralName: 'withdrawals';
+    singularName: 'withdrawal';
+  };
+  options: {
+    draftAndPublish: false;
+  };
+  attributes: {
+    createdAt: Schema.Attribute.DateTime;
+    createdBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
+      Schema.Attribute.Private;
+    customerReceiptSentAt: Schema.Attribute.DateTime & Schema.Attribute.Private;
+    declaredAt: Schema.Attribute.DateTime & Schema.Attribute.Required;
+    email: Schema.Attribute.Email & Schema.Attribute.Required;
+    emailStatus: Schema.Attribute.Enumeration<
+      ['pending', 'partially_sent', 'sent', 'failed']
+    > &
+      Schema.Attribute.Required &
+      Schema.Attribute.Private &
+      Schema.Attribute.DefaultTo<'pending'>;
+    fingerprint: Schema.Attribute.String &
+      Schema.Attribute.Required &
+      Schema.Attribute.Private &
+      Schema.Attribute.Unique &
+      Schema.Attribute.SetMinMaxLength<{
+        maxLength: 64;
+      }>;
+    firstName: Schema.Attribute.String &
+      Schema.Attribute.Required &
+      Schema.Attribute.SetMinMaxLength<{
+        maxLength: 100;
+      }>;
+    lastName: Schema.Attribute.String &
+      Schema.Attribute.Required &
+      Schema.Attribute.SetMinMaxLength<{
+        maxLength: 100;
+      }>;
+    locale: Schema.Attribute.String & Schema.Attribute.Private;
+    localizations: Schema.Attribute.Relation<
+      'oneToMany',
+      'api::withdrawal.withdrawal'
+    > &
+      Schema.Attribute.Private;
+    orderedAt: Schema.Attribute.Date & Schema.Attribute.Required;
+    orderReference: Schema.Attribute.String &
+      Schema.Attribute.Required &
+      Schema.Attribute.SetMinMaxLength<{
+        maxLength: 100;
+      }>;
+    products: Schema.Attribute.Text &
+      Schema.Attribute.Required &
+      Schema.Attribute.SetMinMaxLength<{
+        maxLength: 2000;
+      }>;
+    publishedAt: Schema.Attribute.DateTime;
+    receivedAt: Schema.Attribute.Date;
+    reference: Schema.Attribute.String &
+      Schema.Attribute.Required &
+      Schema.Attribute.Unique &
+      Schema.Attribute.SetMinMaxLength<{
+        maxLength: 48;
+      }>;
+    sellerEmailSentAt: Schema.Attribute.DateTime & Schema.Attribute.Private;
     updatedAt: Schema.Attribute.DateTime;
     updatedBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
       Schema.Attribute.Private;
@@ -1101,6 +1300,8 @@ declare module '@strapi/strapi' {
       'admin::user': AdminUser;
       'api::order.order': ApiOrderOrder;
       'api::product.product': ApiProductProduct;
+      'api::promo-code.promo-code': ApiPromoCodePromoCode;
+      'api::withdrawal.withdrawal': ApiWithdrawalWithdrawal;
       'plugin::content-releases.release': PluginContentReleasesRelease;
       'plugin::content-releases.release-action': PluginContentReleasesReleaseAction;
       'plugin::i18n.locale': PluginI18NLocale;

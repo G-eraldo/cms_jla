@@ -41,6 +41,9 @@
     "installId": "174bc5873925f900ab6cb32b94f4d45a99fa423c99b37d70bd5e46aab7800728"
   },
   "overrides": {
+    "axios": "1.20.0",
+    "dompurify": "3.4.16",
+    "markdown-it": "14.3.1",
     "qs": "6.16.0",
     "sharp": "0.35.4"
   },

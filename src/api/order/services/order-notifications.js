@@ -104,6 +104,12 @@ function buildOrderNotification(order, type) {
     : "";
 
   const notifications = {
+    prepared: {
+      subject: `Votre commande ${order.reference} est préparée — Maison JLA`,
+      title: "Votre colis est prêt",
+      text: `Bonjour ${order.firstName}, votre commande ${order.reference} est préparée et son étiquette a été créée. Le colis n'a pas encore été remis au transporteur${order.carrier ? ` ${order.carrier}` : ""}. Nous vous informerons dès sa prise en charge.${order.trackingNumber ? ` Numéro de suivi : ${order.trackingNumber}.` : ""}${safeUrl(order.trackingUrl) ? ` Suivre le colis : ${safeUrl(order.trackingUrl)}` : ""}`,
+      content: `<p>Votre commande <strong>${reference}</strong> est préparée et son étiquette d’expédition a été créée.</p><p>Le colis n’a pas encore été remis au transporteur${carrier}. Nous vous informerons dès sa prise en charge.</p>${trackingNumber}`,
+    },
     shipped: {
       subject: `Votre commande ${order.reference} est expédiée — Maison JLA`,
       title: "Votre commande est en route",
@@ -163,6 +169,7 @@ async function sendOrderNotification(strapi, order, type) {
   await strapi.plugin("email").service("email").send({
     ...emailSender(),
     to: order.email,
+    idempotencyKey: `order-notification/${order.documentId}/${type}`,
     ...email,
   });
   return true;

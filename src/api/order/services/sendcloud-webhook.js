@@ -80,24 +80,23 @@ function classifyParcelStatus(status = {}) {
     id === 22 ||
     id === 91 ||
     id === 92 ||
-    /shipment picked up|shipment on route|parcel en route|en route|in transit|sorting cent(re|er)|sorted|on its way|expedie|out for delivery|en cours de livraison/.test(
+    /picked up by driver|commande recuperee par le conducteur|shipment on route|parcel en route|en route|in transit|sorting cent(re|er)|sorted|on its way|expedie|out for delivery|en cours de livraison/.test(
       label,
     )
   ) {
     return { fulfillmentStatus: "shipped", notificationType: "in_transit" };
   }
-  // Creating a label (Ready to send / Announced) is when the customer should
-  // receive tracking. Unstamped letters often never get a later transit scan.
+  // A generated label does not mean the parcel has been handed to the carrier.
   if (
     id === 1 ||
     id === 1000 ||
     id === 1002 ||
-    /ready to send|announced at carrier|label (created|printed)|etiquette/.test(
+    /ready to send|announced at carrier|label (created|printed)|printed|imprime|etiquette/.test(
       label,
     ) ||
     /(^| )announced( |$)/.test(label)
   ) {
-    return { fulfillmentStatus: "shipped", notificationType: "shipped" };
+    return { fulfillmentStatus: "processing", notificationType: "prepared" };
   }
   if (
     id === 1001 ||
@@ -111,8 +110,8 @@ function classifyParcelStatus(status = {}) {
 function resolveNotificationType(status, tracking, order) {
   let type = status?.notificationType || null;
   const hasTracking = Boolean(tracking?.trackingNumber);
-  if ((type === "shipped" || type === "in_transit") && !hasTracking) return null;
-  if (type === "in_transit" && !order?.trackingEmailSentAt) return "shipped";
+  if ((type === "prepared" || type === "in_transit") && !hasTracking) return null;
+  if (type === "in_transit" && (!order?.shippedAt || !order?.trackingEmailSentAt)) return "shipped";
   return type;
 }
 
@@ -153,10 +152,17 @@ async function findOrder(strapi, parcel) {
   return null;
 }
 
+function parcelTrackingUrl(parcel) {
+  return [parcel.sendcloud_tracking_url, parcel.tracking_url].find(
+    (value) => typeof value === "string" && /^https:\/\//i.test(value),
+  );
+}
+
 function parcelTracking(parcel) {
+  const fullTrackingUrl = parcelTrackingUrl(parcel);
   return {
-    trackingNumber: parcel.tracking_number || undefined,
-    trackingUrl: parcel.tracking_url || undefined,
+    trackingNumber: parcel.tracking_number ? String(parcel.tracking_number) : undefined,
+    trackingUrl: fullTrackingUrl?.length <= 255 ? fullTrackingUrl : undefined,
     carrier: parcel.carrier?.name || parcel.carrier?.code || parcel.shipment?.name || undefined,
   };
 }
@@ -215,9 +221,9 @@ async function processSendcloudWebhook(strapi, payload, rawBody) {
   const trackingJustAppeared =
     Boolean(tracking.trackingNumber) &&
     tracking.trackingNumber !== order.trackingNumber;
-  if (trackingJustAppeared && !status.notificationType) {
-    status.fulfillmentStatus = status.fulfillmentStatus || "shipped";
-    status.notificationType = "shipped";
+  if (trackingJustAppeared && !status.notificationType && !status.fulfillmentStatus) {
+    status.fulfillmentStatus = "processing";
+    status.notificationType = "prepared";
   }
   status.notificationType = resolveNotificationType(status, tracking, order);
   const nextFulfillmentStatus = forwardStatus(
@@ -231,7 +237,8 @@ async function processSendcloudWebhook(strapi, payload, rawBody) {
       ? { fulfillmentStatus: nextFulfillmentStatus }
       : {}),
   };
-  if (nextFulfillmentStatus === "shipped" && !order.shippedAt) {
+  if (status.fulfillmentStatus === "shipped" &&
+      (!order.shippedAt || !order.trackingEmailSentAt)) {
     update.shippedAt = receivedAt;
   }
   Object.keys(update).forEach((key) => update[key] === undefined && delete update[key]);
@@ -245,7 +252,9 @@ async function processSendcloudWebhook(strapi, payload, rawBody) {
     : order;
 
   const staleNotification =
-    order.fulfillmentStatus === "delivered" && status.notificationType !== "delivered";
+    (order.fulfillmentStatus === "delivered" && status.notificationType !== "delivered") ||
+    (status.notificationType === "prepared" &&
+      (order.fulfillmentStatus === "shipped" || order.fulfillmentStatus === "canceled"));
   let notificationSent = false;
   if (status.notificationType && !staleNotification) {
     const notificationKey = `notification:${order.documentId}:${status.notificationType}`;
@@ -258,7 +267,7 @@ async function processSendcloudWebhook(strapi, payload, rawBody) {
 
     const notificationStore = storeFor(strapi, notificationKey);
     const alreadySent =
-      (status.notificationType === "shipped" && order.trackingEmailSentAt) ||
+      (status.notificationType === "prepared" && order.trackingEmailSentAt) ||
       (await notificationStore.get());
 
     if (!alreadySent) {
@@ -270,6 +279,7 @@ async function processSendcloudWebhook(strapi, payload, rawBody) {
             ...order,
             ...updatedOrder,
             ...tracking,
+            trackingUrl: parcelTrackingUrl(payload.parcel) || tracking.trackingUrl || order.trackingUrl,
             ...parcelDetails(payload.parcel),
           },
           status.notificationType,
@@ -280,7 +290,8 @@ async function processSendcloudWebhook(strapi, payload, rawBody) {
         await notificationStore.set({
           value: { sentAt: new Date().toISOString() },
         });
-        if (status.notificationType === "shipped" && !order.trackingEmailSentAt) {
+        if ((status.notificationType === "prepared" || status.notificationType === "shipped") &&
+            !order.trackingEmailSentAt) {
           await strapi.documents("api::order.order").update({
             documentId: order.documentId,
             data: { trackingEmailSentAt: new Date().toISOString() },

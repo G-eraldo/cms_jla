@@ -54,24 +54,29 @@ function classifyParcelStatus(status = {}) {
   const label = normalizeStatus(`${status.code || ""} ${status.message || ""}`);
 
   if (
-    /awaiting customer pickup|ready (for|at) pickup|at pick up point|point (relais|de retrait)/.test(
+    /awaiting customer pickup|ready (for|at) (customer )?(pick ?up|collection)|available (at|for collection at) (the )?(pick ?up|service) point|(?:colis )?disponible (?:au|en) point (?:de retrait|relais)/.test(
       label,
     )
   ) {
     return { fulfillmentStatus: "shipped", notificationType: "pickup" };
   }
   if (id === 11 || /delivered|shipment collected by customer|livre/.test(label)) {
-    return { fulfillmentStatus: "delivered", notificationType: "delivered" };
+    return { fulfillmentStatus: "delivered", notificationType: null };
   }
   if (id === 4 || /delay|retard/.test(label)) {
-    return { fulfillmentStatus: "shipped", notificationType: "delayed" };
+    return { fulfillmentStatus: "shipped", notificationType: null };
   }
   if (
     /unable to deliver|address invalid|not accessible|no one home|exception|refused by recipient|echec de livraison|announced:? not collected/.test(
       label,
     )
   ) {
-    return { fulfillmentStatus: "shipped", notificationType: "issue" };
+    return { fulfillmentStatus: "shipped", notificationType: null };
+  }
+  if (
+    /colis en route vers le point de livraison|(?:out for delivery|driver en route|in delivery|en cours de livraison)/.test(label)
+  ) {
+    return { fulfillmentStatus: "shipped", notificationType: "in_transit" };
   }
   if (
     id === 3 ||
@@ -80,11 +85,11 @@ function classifyParcelStatus(status = {}) {
     id === 22 ||
     id === 91 ||
     id === 92 ||
-    /picked up by driver|commande recuperee par le conducteur|shipment on route|parcel en route|en route|in transit|sorting cent(re|er)|sorted|on its way|expedie|out for delivery|en cours de livraison/.test(
+    /picked up by driver|commande recuperee par le conducteur|shipment on route|parcel en route|en route|in transit|sorting cent(re|er)|sorted|on its way|expedie|colis remis a mondial relay|prise en charge/.test(
       label,
     )
   ) {
-    return { fulfillmentStatus: "shipped", notificationType: "in_transit" };
+    return { fulfillmentStatus: "shipped", notificationType: "shipped" };
   }
   // A generated label does not mean the parcel has been handed to the carrier.
   if (
@@ -96,7 +101,7 @@ function classifyParcelStatus(status = {}) {
     ) ||
     /(^| )announced( |$)/.test(label)
   ) {
-    return { fulfillmentStatus: "processing", notificationType: "prepared" };
+    return { fulfillmentStatus: "processing", notificationType: null };
   }
   if (
     id === 1001 ||
@@ -110,7 +115,7 @@ function classifyParcelStatus(status = {}) {
 function resolveNotificationType(status, tracking, order) {
   let type = status?.notificationType || null;
   const hasTracking = Boolean(tracking?.trackingNumber);
-  if ((type === "prepared" || type === "in_transit") && !hasTracking) return null;
+  if ((type === "shipped" || type === "in_transit") && !hasTracking) return null;
   if (type === "in_transit" && (!order?.shippedAt || !order?.trackingEmailSentAt)) return "shipped";
   return type;
 }
@@ -223,7 +228,6 @@ async function processSendcloudWebhook(strapi, payload, rawBody) {
     tracking.trackingNumber !== order.trackingNumber;
   if (trackingJustAppeared && !status.notificationType && !status.fulfillmentStatus) {
     status.fulfillmentStatus = "processing";
-    status.notificationType = "prepared";
   }
   status.notificationType = resolveNotificationType(status, tracking, order);
   const nextFulfillmentStatus = forwardStatus(
@@ -251,10 +255,14 @@ async function processSendcloudWebhook(strapi, payload, rawBody) {
       })
     : order;
 
+  const pickupAlreadySent =
+    (status.notificationType === "shipped" || status.notificationType === "in_transit") &&
+    (await storeFor(strapi, `notification:${order.documentId}:pickup`).get());
   const staleNotification =
-    (order.fulfillmentStatus === "delivered" && status.notificationType !== "delivered") ||
-    (status.notificationType === "prepared" &&
-      (order.fulfillmentStatus === "shipped" || order.fulfillmentStatus === "canceled"));
+    order.fulfillmentStatus === "delivered" ||
+    order.fulfillmentStatus === "canceled" ||
+    pickupAlreadySent ||
+    (status.notificationType === "shipped" && order.fulfillmentStatus === "shipped" && order.trackingEmailSentAt);
   let notificationSent = false;
   if (status.notificationType && !staleNotification) {
     const notificationKey = `notification:${order.documentId}:${status.notificationType}`;
@@ -266,9 +274,7 @@ async function processSendcloudWebhook(strapi, payload, rawBody) {
     }
 
     const notificationStore = storeFor(strapi, notificationKey);
-    const alreadySent =
-      (status.notificationType === "prepared" && order.trackingEmailSentAt) ||
-      (await notificationStore.get());
+    const alreadySent = await notificationStore.get();
 
     if (!alreadySent) {
       ordersNotifying.add(notificationKey);
@@ -290,7 +296,7 @@ async function processSendcloudWebhook(strapi, payload, rawBody) {
         await notificationStore.set({
           value: { sentAt: new Date().toISOString() },
         });
-        if ((status.notificationType === "prepared" || status.notificationType === "shipped") &&
+        if (status.notificationType === "shipped" &&
             !order.trackingEmailSentAt) {
           await strapi.documents("api::order.order").update({
             documentId: order.documentId,

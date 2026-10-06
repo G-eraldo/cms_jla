@@ -54,14 +54,14 @@ function classifyParcelStatus(status = {}) {
   const label = normalizeStatus(`${status.code || ""} ${status.message || ""}`);
 
   if (
-    /awaiting customer pickup|ready (for|at) (customer )?(pick ?up|collection)|available (at|for collection at) (the )?(pick ?up|service) point|(?:colis )?disponible (?:au|en) point (?:de retrait|relais)/.test(
+    /awaiting customer pickup|ready (for|at) (customer )?(pick ?up|collection)|available (at|for collection at) (the )?(pick ?up|service) point|(?:colis )?disponible (?:au|en) point (?:de retrait|relais)|delivered to (the |a )?(pick ?up|service) point|livre au point (de retrait|relais)/.test(
       label,
     )
   ) {
     return { fulfillmentStatus: "shipped", notificationType: "pickup" };
   }
   if (id === 11 || /delivered|shipment collected by customer|livre/.test(label)) {
-    return { fulfillmentStatus: "delivered", notificationType: null };
+    return { fulfillmentStatus: "delivered", notificationType: "delivered" };
   }
   if (id === 4 || /delay|retard/.test(label)) {
     return { fulfillmentStatus: "shipped", notificationType: null };
@@ -259,7 +259,7 @@ async function processSendcloudWebhook(strapi, payload, rawBody) {
     (status.notificationType === "shipped" || status.notificationType === "in_transit") &&
     (await storeFor(strapi, `notification:${order.documentId}:pickup`).get());
   const staleNotification =
-    order.fulfillmentStatus === "delivered" ||
+    (order.fulfillmentStatus === "delivered" && status.notificationType !== "delivered") ||
     order.fulfillmentStatus === "canceled" ||
     pickupAlreadySent ||
     (status.notificationType === "shipped" && order.fulfillmentStatus === "shipped" && order.trackingEmailSentAt);

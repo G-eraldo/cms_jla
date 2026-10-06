@@ -52,6 +52,8 @@ function normalizeStatus(value) {
 function classifyParcelStatus(status = {}) {
   const id = Number(status.id);
   const label = normalizeStatus(`${status.code || ""} ${status.message || ""}`);
+  const message = normalizeStatus(status.message);
+  const code = normalizeStatus(status.code);
 
   if (
     /awaiting customer pickup|ready (for|at) (customer )?(pick ?up|collection)|available (at|for collection at) (the )?(pick ?up|service) point|(?:colis )?disponible (?:au|en) point (?:de retrait|relais)|delivered to (the |a )?(pick ?up|service) point|livre au point (de retrait|relais)/.test(
@@ -60,7 +62,11 @@ function classifyParcelStatus(status = {}) {
   ) {
     return { fulfillmentStatus: "shipped", notificationType: "pickup" };
   }
-  if (id === 11 || /delivered|shipment collected by customer|livre/.test(label)) {
+  if (
+    id === 11 ||
+    code === "delivered" ||
+    /^(?:(?:shipment )?delivered(?: to (?:the )?(?:customer|recipient|addressee)| at home)?|shipment collected by customer|(?:colis )?livre(?: au destinataire| a domicile)?)$/.test(message)
+  ) {
     return { fulfillmentStatus: "delivered", notificationType: "delivered" };
   }
   if (id === 4 || /delay|retard/.test(label)) {

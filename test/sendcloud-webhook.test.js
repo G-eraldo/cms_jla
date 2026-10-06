@@ -106,10 +106,12 @@ test("le point relais de destination ne signifie pas que le colis y est disponib
   assert.equal(classifyParcelStatus({ message: "At sorting centre" }).notificationType, "shipped");
   assert.equal(classifyParcelStatus({ message: "Delivery delayed" }).notificationType, null);
   assert.equal(classifyParcelStatus({ message: "Unable to deliver" }).notificationType, null);
-  assert.equal(classifyParcelStatus({ id: 11, message: "Delivered" }).notificationType, null);
+  assert.equal(classifyParcelStatus({ message: "Delivered to service point" }).notificationType, "pickup");
+  assert.equal(classifyParcelStatus({ message: "Not delivered" }).notificationType, null);
+  assert.equal(classifyParcelStatus({ id: 11, message: "Delivered" }).notificationType, "delivered");
 });
 
-test("le webhook envoie seulement les trois e-mails de suivi, dans l'ordre et une fois chacun", async () => {
+test("le webhook envoie les quatre e-mails de suivi, dans l'ordre et une fois chacun", async () => {
   const order = {
     documentId: "order-1",
     reference: "JLA-20261003-TEST",
@@ -204,5 +206,64 @@ test("le webhook envoie seulement les trois e-mails de suivi, dans l'ordre et un
   };
   await processSendcloudWebhook(strapi, collected, JSON.stringify(collected));
   assert.equal(order.fulfillmentStatus, "delivered");
-  assert.equal(emails.length, 3);
+  assert.equal(emails.length, 4);
+  assert.match(emails[3].subject, /a été livrée/);
+  assert.equal(emails[3].idempotencyKey, "order-notification/order-1/delivered");
+
+  const repeatedCollection = { ...collected, timestamp: 1791106200 };
+  await processSendcloudWebhook(strapi, repeatedCollection, JSON.stringify(repeatedCollection));
+  assert.equal(emails.length, 4);
+});
+
+test("la remise à domicile déclenche le dernier e-mail et reste rejouable après un échec", async () => {
+  const order = {
+    documentId: "home-order",
+    reference: "JLA-HOME",
+    firstName: "Ada",
+    email: "ada@example.com",
+    deliveryMethod: "home",
+    fulfillmentStatus: "shipped",
+  };
+  const values = new Map();
+  const emails = [];
+  let failOnce = true;
+  const strapi = {
+    documents: () => ({
+      findMany: async () => [order],
+      update: async ({ data }) => Object.assign(order, data),
+    }),
+    store: ({ key }) => ({
+      get: async () => values.get(key),
+      set: async ({ value }) => values.set(key, value),
+    }),
+    plugin: () => ({ service: () => ({
+      send: async (email) => {
+        if (failOnce) {
+          failOnce = false;
+          throw new Error("Email indisponible");
+        }
+        emails.push(email);
+      },
+    }) }),
+    log: { warn: () => {} },
+  };
+  const delivered = {
+    action: "parcel_status_changed",
+    timestamp: 1791104400,
+    parcel: {
+      order_number: order.reference,
+      carrier: { name: "Colissimo" },
+      status: { id: 11, message: "Delivered" },
+    },
+  };
+
+  await assert.rejects(processSendcloudWebhook(strapi, delivered, JSON.stringify(delivered)));
+  assert.equal(order.fulfillmentStatus, "delivered");
+  assert.equal(emails.length, 0);
+
+  const result = await processSendcloudWebhook(strapi, delivered, JSON.stringify(delivered));
+  assert.equal(result.notificationSent, true);
+  assert.equal(emails.length, 1);
+  assert.match(emails[0].subject, /a été livrée/);
+  assert.equal(emails[0].idempotencyKey, "order-notification/home-order/delivered");
 });

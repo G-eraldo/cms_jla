@@ -8,6 +8,7 @@ const {
   confirmPaidReservation,
   recordPaymentOutcome,
   recordRefund,
+  shippingAmountFor,
   verifyMolliePayment,
 } = require("../src/api/order/services/stock-reservation");
 const { metadataOrderId, reconcilePayment, reconcileRefund } = require("../src/api/order/services/payment-reconciliation");
@@ -49,6 +50,13 @@ function fakeStrapi(order) {
     } },
   };
 }
+
+test("la livraison devient gratuite dès 80 EUR de produits", () => {
+  for (const method of ["pickup", "home"]) {
+    assert.equal(shippingAmountFor(method, 79.99), method === "pickup" ? 3.9 : 7.9);
+    assert.equal(shippingAmountFor(method, 80), 0);
+  }
+});
 
 test("Mollie amount, currency and order identity must all match", async () => {
   process.env.MOLLIE_API_KEY = "test-placeholder";

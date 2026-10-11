@@ -42,7 +42,7 @@ const activeReservation = (order) =>
   !order?.stockDecrementedAt;
 
 function shippingAmountFor(method, subtotalAmount) {
-  if (subtotalAmount >= 60) return 0;
+  if (subtotalAmount >= 80) return 0;
   return method === "pickup" ? 3.9 : 7.9;
 }
 
@@ -965,5 +965,6 @@ module.exports = {
   recordExternalPaymentReversal,
   releaseReservation,
   reserveOrder,
+  shippingAmountFor,
   verifyMolliePayment,
 };

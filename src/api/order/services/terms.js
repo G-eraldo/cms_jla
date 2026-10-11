@@ -3,7 +3,7 @@
 const { createHash } = require("node:crypto");
 const PDFDocument = require("pdfkit");
 
-const TERMS_VERSION = "11 septembre 2026";
+const TERMS_VERSION = "11 octobre 2026";
 
 const TERMS_SECTIONS = [
   {
@@ -31,7 +31,7 @@ const TERMS_SECTIONS = [
     title: "4. Prix",
     paragraphs: [
       "Les prix applicables sont ceux affichés en euros au moment de la commande. TVA non applicable, article 293 B du Code général des impôts. Les prix affichés correspondent au prix net à payer, hors livraison.",
-      "Les frais sont affichés avant paiement : 3,90 EUR en point relais et 7,90 EUR à domicile sous 60 EUR de produits ; livraison offerte à partir de 60 EUR de produits. Le montant total dû est présenté avant validation.",
+      "Les frais sont affichés avant paiement : 3,90 EUR en point relais et 7,90 EUR à domicile sous 80 EUR de produits ; livraison offerte à partir de 80 EUR de produits. Le montant total dû est présenté avant validation.",
     ],
   },
   {

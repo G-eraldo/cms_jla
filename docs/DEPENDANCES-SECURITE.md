@@ -1,4 +1,16 @@
-# Correctifs de dépendances — 1 octobre 2026
+# Correctifs MCP et fast-uri — 17 novembre 2026
+
+Les cinq dépendances Strapi directes sont alignées sur 5.58.0, première version de cette série intégrant `@modelcontextprotocol/server` 2.3.1 et `@modelcontextprotocol/node` 2.1.1. Le lockfile résout aussi `@modelcontextprotocol/core` 2.3.1. Les quatre alertes MCP montrées par GitHub ne figurent plus dans `npm audit --omit=dev`. Aucun override MCP ni changement des routes applicatives n'a été nécessaire.
+
+La PR Dependabot `fast-uri` 3.1.6 → 3.1.8 visible dans la capture est dépassée : de nouveaux avis touchent 3.1.8. Le lockfile est mis à jour en 3.1.9, version corrigée pour ces avis, sans ajout d'une dépendance directe.
+
+Validation sous Node 24.22.1 : `npm ci --ignore-scripts`, reconstruction locale de `better-sqlite3`, 35 tests CMS, compilation de l'administration et chargement Strapi en mode production sur une base SQLite temporaire réussis. Le démarrage HTTP local n'a pas pu être testé : le bac à sable interdit l'écoute sur `127.0.0.1`. Le chargement confirme que MCP reste désactivé par défaut dans ce projet. L'avis de validation des arguments volumineux précise que sa limite `maxToolInputElements` doit être configurée si un serveur MCP est activé ; ce projet n'active pas MCP.
+
+À avis npm comparables sur l'ancien et le nouveau lockfile, les paquets signalés passent de 54 (7 critiques) à 49 (3 critiques). Les alertes restantes sont hors du périmètre MCP/fast-uri ; cette correction ne constitue pas un audit de sécurité global. Le déploiement de cette révision n'a pas été contrôlé.
+
+Sources : [Strapi 5.58.0](https://github.com/strapi/strapi/releases/tag/v5.58.0), [avis MCP sur la validation](https://github.com/advisories/GHSA-46jr-4wx8-v453), [avis fast-uri corrigé en 3.1.9](https://github.com/fastify/fast-uri/security/advisories/GHSA-wjr9-j795-jxcr).
+
+# Historique : correctifs de dépendances — 1 octobre 2026
 
 Strapi reste en 5.56.0, dernière version publiée au moment du contrôle. Les modules Strapi demeurent alignés. Aucun `npm audit fix --force`, aucune migration majeure ni modification des schémas/configurations de base.
 

@@ -48,7 +48,13 @@
     },
     "category": {
       "type": "enumeration",
-      "enum": ["Colliers", "Boucles", "Bracelets", "Bagues"]
+      "enum": ["Colliers", "Boucles", "Bracelets", "Bagues", "Parures"]
+    },
+    "collections": {
+      "type": "relation",
+      "relation": "manyToMany",
+      "target": "api::jewelry-collection.jewelry-collection",
+      "inversedBy": "products"
     },
     "featured": {
       "type": "boolean",

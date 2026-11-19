@@ -33,7 +33,7 @@ module.exports = {
     if (!collection) return ctx.notFound();
     return listPage(ctx, 'api::product.product', {
       fields: ['slug'], sort: ['slug:asc'],
-      filters: { collections: { id: collection.id } },
+      filters: { collections: { documentId: collection.documentId, publishedAt: { $notNull: true } } },
     });
   },
 };
